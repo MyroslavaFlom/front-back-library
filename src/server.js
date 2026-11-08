@@ -1,10 +1,13 @@
 import { config } from './config/env.js';
 import { connectDb, closeDb, DbConnectionError } from './config/db.js';
 import { createApp } from './app.js';
+import { ensureIndexes } from './dao/index.js';
 
 async function start() {
   await connectDb();
   console.log(`Connected to MongoDB (db: ${config.dbName})`);
+  await ensureIndexes();
+  console.log('MongoDB indexes ensured');
 
   const app = createApp();
   const server = app.listen(config.port, () => {

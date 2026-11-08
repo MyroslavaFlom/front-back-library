@@ -24,6 +24,7 @@ routes → controllers → services → dao → MongoDB
 | services | `src/services/` | Бізнес-логіка та валідація правил предметної області. Не знає про `req`/`res`. |
 | dao | `src/dao/` | Єдине місце роботи з колекціями MongoDB (`getDb().collection(...)`), конвертація `ObjectId`. |
 | config | `src/config/` | `env.js` — завантаження й перевірка `.env`; `db.js` — singleton `MongoClient` (`connectDb`, `getDb`, `pingDb`, `closeDb`). |
+| validators | `src/validators/` | Валідація й нормалізація вхідних даних (`validate.js` + схеми сутностей, `query.validator.js`). Викликаються з сервісів; помилка → `HttpError` 400 з `details: [{ field, message }]`. |
 | middlewares | `src/middlewares/` | Наскрізні middleware: `notFound`, `errorHandler`, валідація тощо. |
 | utils | `src/utils/` | Допоміжні утиліти (`HttpError` тощо). |
 
@@ -35,7 +36,9 @@ routes → controllers → services → dao → MongoDB
 - **Контролери не звертаються до БД напряму** — ні `getDb()`, ні DAO; лише через сервіси.
 - **Сервіси не імпортують `mongodb`/`getDb()`** — доступ до даних лише через DAO.
 - Кожен шар викликає тільки наступний шар; пропускати шари не можна.
-- Помилки з HTTP-статусом кидаємо як `new HttpError(status, message)`; їх обробляє `errorHandler`. Express 5 сам передає відхилені проміси з async-хендлерів у `errorHandler` — `try/catch` у контролерах не потрібен.
+- Помилки з HTTP-статусом кидаємо як `new HttpError(status, message, details)` або `HttpError.badRequest/notFound/conflict/unprocessable(...)`; їх обробляє `errorHandler`. Express 5 сам передає відхилені проміси з async-хендлерів у `errorHandler` — `try/catch` у контролерах не потрібен.
+- Сервіси створюються фабриками з DAO у параметрах: `createBookService(getDaos())`. Помилку дубліката (E11000) перетворюємо на 409 через `toConflict()` з `utils/mongoErrors.js`.
+- Формат помилки API: `{ "error": { "status", "message", "details" } }`.
 - Усі маршрути — під префіксом `/api`, реєструються у `src/routes/index.js`.
 - Іменування файлів: `<entity>.routes.js`, `<entity>.controller.js`, `<entity>.service.js`, `<entity>.dao.js`.
 - Секрети лише в `.env` (він у `.gitignore`); нові змінні додаємо також у `.env.example` і `src/config/env.js`.

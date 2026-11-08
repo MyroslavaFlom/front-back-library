@@ -130,6 +130,23 @@ export class BaseDao {
     return this.map(doc);
   }
 
+  /**
+   * Повна заміна полів сутності (PUT): передані поля встановлюються, решта полів
+   * зі списку fields видаляються. createdAt зберігається, updatedAt оновлюється.
+   * Повертає оновлену сутність або null, якщо не знайдено.
+   */
+  async replace(id, entity) {
+    const _id = toObjectId(id);
+    if (!_id) return null;
+    const picked = this.pickFields(entity);
+    const $set = { ...this.toDb(picked), updatedAt: new Date() };
+    const missing = this.constructor.fields.filter((f) => !(f in picked));
+    const update = { $set };
+    if (missing.length > 0) update.$unset = Object.fromEntries(missing.map((f) => [f, '']));
+    const doc = await this.collection.findOneAndUpdate({ _id }, update, { returnDocument: 'after' });
+    return this.map(doc);
+  }
+
   /** @returns {Promise<boolean>} true, якщо документ видалено. */
   async delete(id) {
     const _id = toObjectId(id);

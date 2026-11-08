@@ -28,7 +28,8 @@ routes → controllers → services → dao → MongoDB
 | middlewares | `src/middlewares/` | Наскрізні middleware: `notFound`, `errorHandler`, валідація тощо. |
 | utils | `src/utils/` | Допоміжні утиліти (`HttpError` тощо). |
 
-`src/app.js` — збирає Express-застосунок (`createApp()`), без підключення до БД і без `listen`.
+`src/app.js` — збирає Express-застосунок (`createApp({ services })`), без підключення до БД і без `listen`.
+Зв'язування залежностей — один раз у `server.js`: `getDaos()` → `createServices(daos)` → `createApp({ services })` → `createApiRouter(services)` → `create<Entity>Controller(service)` → `create<Entity>Routes(controller)`.
 `src/server.js` — підключає БД, запускає HTTP-сервер, graceful shutdown (SIGINT/SIGTERM → закрити сервер → `closeDb()`).
 
 ## Правила

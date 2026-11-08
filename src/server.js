@@ -1,7 +1,8 @@
 import { config } from './config/env.js';
 import { connectDb, closeDb, DbConnectionError } from './config/db.js';
 import { createApp } from './app.js';
-import { ensureIndexes } from './dao/index.js';
+import { ensureIndexes, getDaos } from './dao/index.js';
+import { createServices } from './services/index.js';
 
 async function start() {
   await connectDb();
@@ -9,7 +10,8 @@ async function start() {
   await ensureIndexes();
   console.log('MongoDB indexes ensured');
 
-  const app = createApp();
+  const services = createServices(getDaos());
+  const app = createApp({ services });
   const server = app.listen(config.port, () => {
     console.log(`Server listening on http://localhost:${config.port}`);
   });

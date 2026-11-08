@@ -2,18 +2,23 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import { config } from './config/env.js';
-import apiRoutes from './routes/index.js';
+import { createApiRouter } from './routes/index.js';
 import { notFound } from './middlewares/notFound.js';
 import { errorHandler } from './middlewares/errorHandler.js';
 
-export function createApp() {
+/**
+ * Збирає Express-застосунок без підключення до БД і без listen.
+ * @param {{ services: ReturnType<typeof import('./services/index.js').createServices> }} deps
+ */
+export function createApp({ services }) {
   const app = express();
 
-  app.use(cors());
-  app.use(express.json());
+  // morgan перед express.json, щоб логувалися й запити з невалідним JSON.
   app.use(morgan(config.nodeEnv === 'production' ? 'combined' : 'dev'));
+  app.use(cors({ exposedHeaders: ['Location'] }));
+  app.use(express.json());
 
-  app.use('/api', apiRoutes);
+  app.use('/api', createApiRouter(services));
 
   app.use(notFound);
   app.use(errorHandler);

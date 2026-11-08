@@ -1,7 +1,12 @@
 import { HttpError } from '../utils/HttpError.js';
 import { toConflict } from '../utils/mongoErrors.js';
 import { validateReader, validateReaderPatch } from '../validators/reader.validator.js';
-import { parseListQuery, optionalString, escapeRegex } from '../validators/query.validator.js';
+import {
+  parseListQuery,
+  optionalString,
+  escapeRegex,
+  totalPages,
+} from '../validators/query.validator.js';
 
 const SORTABLE = ['name', 'email', 'registeredAt', 'createdAt'];
 
@@ -32,7 +37,7 @@ export function createReaderService({ readerDao, loanDao }) {
         readerDao.findAll(filter, { sort, skip, limit }),
         readerDao.count(filter),
       ]);
-      return { items, total, page, limit };
+      return { items, total, page, limit, totalPages: totalPages(total, limit) };
     },
 
     getById(id) {

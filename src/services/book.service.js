@@ -1,7 +1,12 @@
 import { HttpError } from '../utils/HttpError.js';
 import { toConflict } from '../utils/mongoErrors.js';
 import { validateBook, validateBookPatch } from '../validators/book.validator.js';
-import { parseListQuery, optionalString, escapeRegex } from '../validators/query.validator.js';
+import {
+  parseBookListQuery,
+  optionalString,
+  escapeRegex,
+  totalPages,
+} from '../validators/query.validator.js';
 
 const SORTABLE = ['title', 'author', 'year', 'rating', 'pages', 'createdAt'];
 
@@ -60,12 +65,23 @@ export function createBookService({ bookDao, loanDao }) {
 
   return {
     /**
-     * @param {{ page?, limit?, sort?, search?, genre?, author? }} query — сирі значення з query-рядка
+     * @param {{ page?, limit?, sort?, search?, genre?, author?, yearFrom?, yearTo?, available? }} query
+     *   — сирі значення з query-рядка
+     * @returns {{ items, total, page, limit, totalPages }}
      */
     async getAll(query = {}) {
-      const { page, limit, skip, sort } = parseListQuery(query, { sortable: SORTABLE });
+      const { page, limit, skip, sort, yearFrom, yearTo, available } = parseBookListQuery(query, {
+        sortable: SORTABLE,
+      });
 
       const filter = {};
+      if (yearFrom !== undefined || yearTo !== undefined) {
+        filter.year = {};
+        if (yearFrom !== undefined) filter.year.$gte = yearFrom;
+        if (yearTo !== undefined) filter.year.$lte = yearTo;
+      }
+      if (available === true) filter.availableCopies = { $gt: 0 };
+      if (available === false) filter.availableCopies = 0;
       const search = optionalString(query.search);
       const genre = optionalString(query.genre);
       const author = optionalString(query.author);
@@ -77,7 +93,7 @@ export function createBookService({ bookDao, loanDao }) {
         bookDao.findAll(filter, { sort, skip, limit }),
         bookDao.count(filter),
       ]);
-      return { items, total, page, limit };
+      return { items, total, page, limit, totalPages: totalPages(total, limit) };
     },
 
     getById(id) {

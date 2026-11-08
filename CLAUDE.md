@@ -7,6 +7,7 @@ ES-модулі (`"type": "module"`), у імпортах завжди вказ�
 
 - `npm run dev` — розробка (nodemon)
 - `npm start` — продакшн
+- `npm run seed` — очищує books/readers/loans і заповнює демо-даними (`src/scripts/seed.js`)
 - Конфіг у `.env` (шаблон — `.env.example`): `PORT`, `MONGO_URI`, `DB_NAME`.
 
 ## Архітектура

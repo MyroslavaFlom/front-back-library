@@ -1,0 +1,503 @@
+{
+  "info": {
+    "name": "Library API",
+    "description": "REST API сервісу «Бібліотека». Запустіть сервер (npm run dev), за потреби — npm run seed.\n\nPOST-запити зберігають id створених записів у змінні колекції bookId, readerId, loanId, тож решту запитів можна виконувати одразу після створення. Колекцію можна прогнати цілком через Collection Runner.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000/api" },
+    { "key": "bookId", "value": "" },
+    { "key": "readerId", "value": "" },
+    { "key": "loanId", "value": "" },
+    { "key": "isbn", "value": "" },
+    { "key": "readerEmail", "value": "" },
+    { "key": "emptyBookId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health check",
+      "request": { "method": "GET", "url": "{{baseUrl}}/health" },
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test('200 OK', () => pm.response.to.have.status(200));"
+        ] } }
+      ]
+    },
+    {
+      "name": "Books",
+      "item": [
+        {
+          "name": "List books",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/books?page=1&limit=10&sort=-rating&available=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["books"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "sort", "value": "-rating", "description": "title | author | year | rating | pages | createdAt; префікс - — за спаданням" },
+                { "key": "available", "value": "true", "description": "true | false" },
+                { "key": "search", "value": "Азімов", "disabled": true, "description": "Повнотекстовий пошук за назвою й автором" },
+                { "key": "genre", "value": "фантастика", "disabled": true },
+                { "key": "author", "value": "Крісті", "disabled": true },
+                { "key": "yearFrom", "value": "1900", "disabled": true },
+                { "key": "yearTo", "value": "2000", "disabled": true }
+              ]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Create book",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/books",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Кайдашева сім'я\",\n  \"author\": \"Іван Нечуй-Левицький\",\n  \"isbn\": \"{{isbn}}\",\n  \"genre\": \"роман\",\n  \"year\": 1879,\n  \"pages\": 224,\n  \"totalCopies\": 2,\n  \"rating\": 4.6\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "// Унікальний валідний ISBN-13 для кожного запуску (isbn має бути унікальним).",
+              "const base = '979' + String(Math.floor(Math.random() * 1e9)).padStart(9, '0');",
+              "const sum = [...base].reduce((acc, ch, i) => acc + Number(ch) * (i % 2 ? 3 : 1), 0);",
+              "pm.collectionVariables.set('isbn', base + ((10 - (sum % 10)) % 10));"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('201 Created', () => pm.response.to.have.status(201));",
+              "if (pm.response.code === 201) pm.collectionVariables.set('bookId', pm.response.json().id);"
+            ] } }
+          ]
+        },
+        {
+          "name": "Get book by id",
+          "request": { "method": "GET", "url": "{{baseUrl}}/books/{{bookId}}" },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Replace book (PUT)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/books/{{bookId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Кайдашева сім'я (нове видання)\",\n  \"author\": \"Іван Нечуй-Левицький\",\n  \"isbn\": \"{{isbn}}\",\n  \"genre\": \"роман\",\n  \"year\": 1879,\n  \"pages\": 256,\n  \"totalCopies\": 3,\n  \"rating\": 4.7\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Update book (PATCH)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/books/{{bookId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"rating\": 4.8,\n  \"totalCopies\": 4\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "[Negative] Duplicate ISBN → 409",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/books",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Дублікат\",\n  \"author\": \"Хтось\",\n  \"isbn\": \"{{isbn}}\",\n  \"totalCopies\": 1\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "ISBN збігається з книжкою, створеною запитом «Create book»."
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('409 Conflict', () => pm.response.to.have.status(409));"
+            ] } }
+          ]
+        },
+        {
+          "name": "[Negative] Invalid id → 404",
+          "request": { "method": "GET", "url": "{{baseUrl}}/books/not-a-valid-id" },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('404 Not Found', () => pm.response.to.have.status(404));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Delete book",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/books/{{bookId}}" },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+              "// Видалена книжка — «Create loan» створить нову автоматично.",
+              "if (pm.response.code === 204) pm.collectionVariables.unset('bookId');"
+            ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Readers",
+      "item": [
+        {
+          "name": "List readers",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/readers?page=1&limit=10&sort=name",
+              "host": ["{{baseUrl}}"],
+              "path": ["readers"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "10" },
+                { "key": "sort", "value": "name", "description": "name | email | registeredAt | createdAt" },
+                { "key": "search", "value": "олена", "disabled": true, "description": "Пошук за ім'ям або email" }
+              ]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Create reader",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/readers",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Марія Петренко\",\n  \"email\": \"{{readerEmail}}\",\n  \"phone\": \"+380501112233\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+              "// email має бути унікальним — генеруємо новий для кожного запуску.",
+              "pm.collectionVariables.set('readerEmail', `maria.${Date.now()}@example.com`);"
+            ] } },
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('201 Created', () => pm.response.to.have.status(201));",
+              "if (pm.response.code === 201) pm.collectionVariables.set('readerId', pm.response.json().id);"
+            ] } }
+          ]
+        },
+        {
+          "name": "Get reader by id",
+          "request": { "method": "GET", "url": "{{baseUrl}}/readers/{{readerId}}" },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Replace reader (PUT)",
+          "request": {
+            "method": "PUT",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/readers/{{readerId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Марія Петренко-Коваль\",\n  \"email\": \"{{readerEmail}}\",\n  \"phone\": \"+380509998877\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Update reader (PATCH)",
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/readers/{{readerId}}",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"+380671234567\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Reader loan history",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/readers/{{readerId}}/loans",
+              "host": ["{{baseUrl}}"],
+              "path": ["readers", "{{readerId}}", "loans"],
+              "query": [
+                { "key": "status", "value": "active", "disabled": true, "description": "active | overdue | returned" }
+              ]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Reader recommendations",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/readers/{{readerId}}/recommendations?limit=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["readers", "{{readerId}}", "recommendations"],
+              "query": [{ "key": "limit", "value": "5", "description": "1–50" }]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Delete reader",
+          "request": { "method": "DELETE", "url": "{{baseUrl}}/readers/{{readerId}}" },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+              "// Видалений читач — «Create loan» створить нового автоматично.",
+              "if (pm.response.code === 204) pm.collectionVariables.unset('readerId');"
+            ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Loans",
+      "event": [
+        { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
+          "// Якщо bookId/readerId ще не задані (або видалені в Books/Readers) — створюємо їх,",
+          "// щоб видачі працювали і при ручному запуску, і в Collection Runner.",
+          "const baseUrl = pm.collectionVariables.get('baseUrl');",
+          "const post = (path, body, varName) => pm.sendRequest({",
+          "  url: baseUrl + path,",
+          "  method: 'POST',",
+          "  header: [{ key: 'Content-Type', value: 'application/json' }],",
+          "  body: { mode: 'raw', raw: JSON.stringify(body) },",
+          "}, (err, res) => {",
+          "  if (!err && res.code === 201) pm.collectionVariables.set(varName, res.json().id);",
+          "});",
+          "const isbn = () => {",
+          "  const base = '979' + String(Math.floor(Math.random() * 1e9)).padStart(9, '0');",
+          "  const sum = [...base].reduce((acc, ch, i) => acc + Number(ch) * (i % 2 ? 3 : 1), 0);",
+          "  return base + ((10 - (sum % 10)) % 10);",
+          "};",
+          "if (!pm.collectionVariables.get('bookId')) {",
+          "  post('/books', { title: 'Тіні забутих предків', author: 'Михайло Коцюбинський', genre: 'повість', totalCopies: 2, isbn: isbn() }, 'bookId');",
+          "}",
+          "if (!pm.collectionVariables.get('readerId')) {",
+          "  post('/readers', { name: 'Андрій Postman', email: `andrii.${Date.now()}@example.com` }, 'readerId');",
+          "}",
+          "// Для негативного прикладу «No free copies» — книжка без примірників.",
+          "if (pm.info.requestName.startsWith('[Negative] No free copies')) {",
+          "  post('/books', { title: 'Книжка без примірників', author: 'Postman', totalCopies: 0, isbn: isbn() }, 'emptyBookId');",
+          "}"
+        ] } }
+      ],
+      "item": [
+        {
+          "name": "List loans",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/loans?status=active&sort=-loanDate",
+              "host": ["{{baseUrl}}"],
+              "path": ["loans"],
+              "query": [
+                { "key": "status", "value": "active", "description": "active | overdue | returned" },
+                { "key": "sort", "value": "-loanDate", "description": "loanDate | dueDate | returnDate | createdAt" },
+                { "key": "readerId", "value": "{{readerId}}", "disabled": true },
+                { "key": "bookId", "value": "{{bookId}}", "disabled": true }
+              ]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Create loan (issue book)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/loans",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookId\": \"{{bookId}}\",\n  \"readerId\": \"{{readerId}}\",\n  \"days\": 14\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "days — 1–30 (за замовчуванням 14). Поза production можна передати loanDate у минулому, щоб змоделювати прострочення."
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('201 Created', () => pm.response.to.have.status(201));",
+              "if (pm.response.code === 201) pm.collectionVariables.set('loanId', pm.response.json().id);"
+            ] } }
+          ]
+        },
+        {
+          "name": "Get loan by id",
+          "request": { "method": "GET", "url": "{{baseUrl}}/loans/{{loanId}}" },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Extend loan (+7 days)",
+          "request": { "method": "POST", "url": "{{baseUrl}}/loans/{{loanId}}/extend" },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Return loan",
+          "request": { "method": "POST", "url": "{{baseUrl}}/loans/{{loanId}}/return" },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "[Negative] No free copies → 409",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": "{{baseUrl}}/loans",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookId\": \"{{emptyBookId}}\",\n  \"readerId\": \"{{readerId}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Перед запитом створюється книжка з totalCopies: 0 (змінна emptyBookId)."
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('409 Conflict', () => pm.response.to.have.status(409));"
+            ] } }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Stats",
+      "item": [
+        {
+          "name": "Popular books",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/stats/popular-books?limit=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["stats", "popular-books"],
+              "query": [
+                { "key": "limit", "value": "5", "description": "1–50" },
+                { "key": "from", "value": "2026-01-01", "disabled": true, "description": "YYYY-MM-DD або ISO 8601" },
+                { "key": "to", "value": "2026-12-31", "disabled": true, "description": "Дата без часу — включно до кінця дня" }
+              ]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Genres",
+          "request": { "method": "GET", "url": "{{baseUrl}}/stats/genres" },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Overdue loans",
+          "request": { "method": "GET", "url": "{{baseUrl}}/stats/overdue" },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Top readers",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/stats/top-readers?limit=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["stats", "top-readers"],
+              "query": [{ "key": "limit", "value": "5", "description": "1–50" }]
+            }
+          },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        },
+        {
+          "name": "Summary",
+          "request": { "method": "GET", "url": "{{baseUrl}}/stats/summary" },
+          "event": [
+            { "listen": "test", "script": { "type": "text/javascript", "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ] } }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -168,6 +168,12 @@ export class BaseDao {
     return deletedCount === 1;
   }
 
+  /** Видаляє всі документи колекції (індекси зберігаються). Для seed-скрипта. */
+  async deleteAll({ session } = {}) {
+    const { deletedCount } = await this.collection.deleteMany({}, { session });
+    return deletedCount;
+  }
+
   async count(filter = {}, { session } = {}) {
     return this.collection.countDocuments(this.buildFilter(filter), { session });
   }

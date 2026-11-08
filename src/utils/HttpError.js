@@ -8,19 +8,19 @@ export class HttpError extends Error {
     this.details = details;
   }
 
-  static badRequest(message = 'Bad Request', details) {
+  static badRequest(message = 'Некоректний запит', details) {
     return new HttpError(400, message, details);
   }
 
-  static notFound(message = 'Not Found', details) {
+  static notFound(message = 'Не знайдено', details) {
     return new HttpError(404, message, details);
   }
 
-  static conflict(message = 'Conflict', details) {
+  static conflict(message = 'Конфлікт', details) {
     return new HttpError(409, message, details);
   }
 
-  static unprocessable(message = 'Unprocessable Entity', details) {
+  static unprocessable(message = 'Неможливо обробити запит', details) {
     return new HttpError(422, message, details);
   }
 }

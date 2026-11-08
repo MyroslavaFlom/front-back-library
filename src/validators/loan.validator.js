@@ -14,7 +14,7 @@ const backdatedSchema = {
   ...baseSchema,
   loanDate: {
     type: 'date',
-    check: (v) => (v.getTime() > Date.now() ? 'must not be in the future' : undefined),
+    check: (v) => (v.getTime() > Date.now() ? 'не може бути в майбутньому' : undefined),
   },
 };
 

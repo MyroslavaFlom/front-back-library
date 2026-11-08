@@ -23,7 +23,7 @@ const SORTABLE = ['title', 'author', 'year', 'rating', 'pages', 'createdAt'];
 export function createBookService({ bookDao, loanDao, withTransaction }) {
   async function getExisting(id, session) {
     const book = await bookDao.findById(id, { session });
-    if (!book) throw HttpError.notFound(`Book with id "${id}" not found`);
+    if (!book) throw HttpError.notFound(`Книжку з id "${id}" не знайдено`);
     return book;
   }
 
@@ -50,8 +50,8 @@ export function createBookService({ bookDao, loanDao, withTransaction }) {
 
     if (total < active) {
       throw HttpError.unprocessable(
-        `totalCopies (${total}) cannot be less than the number of copies on loan (${active})`,
-        [{ field: 'totalCopies', message: `must be >= ${active} (active loans)` }],
+        `totalCopies (${total}) не може бути меншим за кількість примірників на руках (${active})`,
+        [{ field: 'totalCopies', message: `має бути не менше ${active} (активні видачі)` }],
       );
     }
 
@@ -59,8 +59,8 @@ export function createBookService({ bookDao, loanDao, withTransaction }) {
     if (availableGiven) {
       if (changes.availableCopies > maxAvailable) {
         throw HttpError.unprocessable(
-          `availableCopies (${changes.availableCopies}) exceeds copies not on loan (${maxAvailable})`,
-          [{ field: 'availableCopies', message: `must be <= ${maxAvailable} (totalCopies - active loans)` }],
+          `availableCopies (${changes.availableCopies}) перевищує кількість примірників не на руках (${maxAvailable})`,
+          [{ field: 'availableCopies', message: `має бути не більше ${maxAvailable} (totalCopies мінус активні видачі)` }],
         );
       }
       return changes;
@@ -74,7 +74,7 @@ export function createBookService({ bookDao, loanDao, withTransaction }) {
     try {
       return await withTransaction(fn);
     } catch (err) {
-      throw toConflict(err, 'Book');
+      throw toConflict(err, 'Книжка');
     }
   }
 
@@ -122,7 +122,7 @@ export function createBookService({ bookDao, loanDao, withTransaction }) {
       try {
         return await bookDao.create(data);
       } catch (err) {
-        throw toConflict(err, 'Book');
+        throw toConflict(err, 'Книжка');
       }
     },
 
@@ -145,8 +145,8 @@ export function createBookService({ bookDao, loanDao, withTransaction }) {
         // availableCopies без totalCopies у тілі — перевіряємо проти збереженого totalCopies.
         if (changes.availableCopies !== undefined && changes.totalCopies === undefined
             && changes.availableCopies > existing.totalCopies) {
-          throw HttpError.badRequest('Validation failed', [
-            { field: 'availableCopies', message: `must be <= totalCopies (${existing.totalCopies})` },
+          throw HttpError.badRequest('Помилка валідації', [
+            { field: 'availableCopies', message: `має бути не більше totalCopies (${existing.totalCopies})` },
           ]);
         }
 
@@ -161,10 +161,10 @@ export function createBookService({ bookDao, loanDao, withTransaction }) {
         await getExisting(id, session);
         const active = await countActiveLoans(id, session);
         if (active > 0) {
-          throw HttpError.conflict(`Book cannot be deleted: it has ${active} active loan(s)`);
+          throw HttpError.conflict(`Книжку не можна видалити: активних видач — ${active}`);
         }
         if (!(await bookDao.delete(id, { session }))) {
-          throw HttpError.notFound(`Book with id "${id}" not found`);
+          throw HttpError.notFound(`Книжку з id "${id}" не знайдено`);
         }
       });
     },

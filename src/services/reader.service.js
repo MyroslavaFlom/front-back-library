@@ -18,7 +18,7 @@ const SORTABLE = ['name', 'email', 'registeredAt', 'createdAt'];
 export function createReaderService({ readerDao, loanDao, withTransaction }) {
   async function getExisting(id, session) {
     const reader = await readerDao.findById(id, { session });
-    if (!reader) throw HttpError.notFound(`Reader with id "${id}" not found`);
+    if (!reader) throw HttpError.notFound(`Читача з id "${id}" не знайдено`);
     return reader;
   }
 
@@ -51,7 +51,7 @@ export function createReaderService({ readerDao, loanDao, withTransaction }) {
       try {
         return await readerDao.create(data);
       } catch (err) {
-        throw toConflict(err, 'Reader');
+        throw toConflict(err, 'Читач');
       }
     },
 
@@ -63,7 +63,7 @@ export function createReaderService({ readerDao, loanDao, withTransaction }) {
       try {
         return (await readerDao.replace(id, data)) ?? (await getExisting(id));
       } catch (err) {
-        throw toConflict(err, 'Reader');
+        throw toConflict(err, 'Читач');
       }
     },
 
@@ -73,7 +73,7 @@ export function createReaderService({ readerDao, loanDao, withTransaction }) {
       try {
         return (await readerDao.update(id, data)) ?? (await getExisting(id));
       } catch (err) {
-        throw toConflict(err, 'Reader');
+        throw toConflict(err, 'Читач');
       }
     },
 
@@ -87,10 +87,10 @@ export function createReaderService({ readerDao, loanDao, withTransaction }) {
         await getExisting(id, session);
         const active = await loanDao.count({ readerId: id, status: 'active' }, { session });
         if (active > 0) {
-          throw HttpError.conflict(`Reader cannot be deleted: they have ${active} active loan(s)`);
+          throw HttpError.conflict(`Читача не можна видалити: активних видач — ${active}`);
         }
         if (!(await readerDao.delete(id, { session }))) {
-          throw HttpError.notFound(`Reader with id "${id}" not found`);
+          throw HttpError.notFound(`Читача з id "${id}" не знайдено`);
         }
       });
     },

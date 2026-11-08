@@ -32,7 +32,7 @@ const bookSchema = {
   isbn: {
     type: 'string',
     required: true,
-    check: (v) => (isValidIsbn(v) ? undefined : 'must be a valid ISBN-10 or ISBN-13'),
+    check: (v) => (isValidIsbn(v) ? undefined : 'має бути коректним ISBN-10 або ISBN-13'),
     normalize: normalizeIsbn,
   },
   genre: { type: 'string', min: 1, max: 100 },
@@ -45,7 +45,7 @@ const bookSchema = {
 
 function crossCheck({ totalCopies, availableCopies }) {
   if (totalCopies !== undefined && availableCopies !== undefined && availableCopies > totalCopies) {
-    return [{ field: 'availableCopies', message: 'must be <= totalCopies' }];
+    return [{ field: 'availableCopies', message: 'має бути не більше totalCopies' }];
   }
   return [];
 }

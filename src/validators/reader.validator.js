@@ -11,7 +11,7 @@ const readerSchema = {
     type: 'string',
     required: true,
     max: 254,
-    check: (v) => (EMAIL_RE.test(v) ? undefined : 'must be a valid email address'),
+    check: (v) => (EMAIL_RE.test(v) ? undefined : 'має бути коректною адресою електронної пошти'),
     normalize: (v) => v.toLowerCase(),
   },
   phone: {
@@ -20,12 +20,12 @@ const readerSchema = {
       const digits = v.replace(/\D/g, '').length;
       return PHONE_RE.test(v) && digits >= 7 && digits <= 15
         ? undefined
-        : 'must be a valid phone number (7–15 digits, optional leading +)';
+        : 'має бути коректним номером телефону (7–15 цифр, необов\'язковий + на початку)';
     },
   },
   registeredAt: {
     type: 'date',
-    check: (v) => (v.getTime() > Date.now() ? 'must not be in the future' : undefined),
+    check: (v) => (v.getTime() > Date.now() ? 'не може бути в майбутньому' : undefined),
   },
 };
 

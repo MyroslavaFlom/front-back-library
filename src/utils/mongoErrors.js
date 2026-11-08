@@ -4,7 +4,8 @@ const DUPLICATE_KEY = 11000;
 
 /**
  * Перетворює помилку унікального індексу (E11000) на 409 із назвою поля.
- * Інші помилки повертає без змін. Використання: `catch (e) { throw toConflict(e, 'Book') }`.
+ * Інші помилки повертає без змін. Використання: `catch (e) { throw toConflict(e, 'Книжка') }`
+ * (entityName — назва сутності українською в називному відмінку).
  */
 export function toConflict(err, entityName) {
   if (err?.code !== DUPLICATE_KEY) return err;
@@ -14,7 +15,7 @@ export function toConflict(err, entityName) {
     err.message?.match(/index: (\w+?)_/)?.[1] ??
     'unknown';
 
-  return HttpError.conflict(`${entityName} with this ${field} already exists`, [
-    { field, message: 'must be unique' },
+  return HttpError.conflict(`${entityName} з таким значенням поля ${field} вже існує`, [
+    { field, message: 'має бути унікальним' },
   ]);
 }

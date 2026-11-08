@@ -1,22 +1,17 @@
 import { HttpError } from '../utils/HttpError.js';
 import { validateLoanCreate } from '../validators/loan.validator.js';
 import { parseLoanListQuery, totalPages } from '../validators/query.validator.js';
+import { calculateFine } from './fine.js';
 
+export { FINE_PER_DAY_UAH } from './fine.js';
 export const DEFAULT_LOAN_DAYS = 14;
 export const MAX_ACTIVE_LOANS = 3;
 export const EXTENSION_DAYS = 7;
-export const FINE_PER_DAY_UAH = 5;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SORTABLE = ['loanDate', 'dueDate', 'returnDate', 'createdAt'];
 
 const addDays = (date, days) => new Date(date.getTime() + days * DAY_MS);
-
-/** Кількість днів прострочення: будь-яка неповна доба рахується як повна. */
-function overdueDays(dueDate, until) {
-  const ms = until.getTime() - dueDate.getTime();
-  return ms > 0 ? Math.ceil(ms / DAY_MS) : 0;
-}
 
 /**
  * Додає до видачі обчислювані поля (у базі не зберігаються):
@@ -27,11 +22,11 @@ function overdueDays(dueDate, until) {
 function present(loan, now = new Date()) {
   const isOverdue = loan.status === 'active' && loan.dueDate < now;
   const until = loan.status === 'returned' ? loan.returnDate : now;
-  const days = overdueDays(loan.dueDate, until);
+  const { daysOverdue, fine } = calculateFine(loan.dueDate, until);
   const result = { ...loan, extended: loan.extended ?? false, isOverdue };
-  if (days > 0) {
-    result.daysOverdue = days;
-    result.fine = days * FINE_PER_DAY_UAH;
+  if (daysOverdue > 0) {
+    result.daysOverdue = daysOverdue;
+    result.fine = fine;
   }
   return result;
 }
@@ -63,7 +58,7 @@ export function createLoanService(
 ) {
   async function getExisting(id, session) {
     const loan = await loanDao.findById(id, { session });
-    if (!loan) throw HttpError.notFound(`Loan with id "${id}" not found`);
+    if (!loan) throw HttpError.notFound(`Видачу з id "${id}" не знайдено`);
     return loan;
   }
 
@@ -100,7 +95,7 @@ export function createLoanService(
     /** Історія видач читача (з тими самими фільтрами й пагінацією). */
     async getByReader(readerId, query = {}) {
       if (!(await readerDao.findById(readerId))) {
-        throw HttpError.notFound(`Reader with id "${readerId}" not found`);
+        throw HttpError.notFound(`Читача з id "${readerId}" не знайдено`);
       }
       return list({ ...query, readerId });
     },
@@ -126,28 +121,28 @@ export function createLoanService(
           const now = new Date();
 
           if (!(await bookDao.findById(bookId, { session }))) {
-            throw HttpError.notFound(`Book with id "${bookId}" not found`);
+            throw HttpError.notFound(`Книжку з id "${bookId}" не знайдено`);
           }
           if (!(await readerDao.lock(readerId, { session }))) {
-            throw HttpError.notFound(`Reader with id "${readerId}" not found`);
+            throw HttpError.notFound(`Читача з id "${readerId}" не знайдено`);
           }
 
           const active = await loanDao.findAll({ readerId, status: 'active' }, { session });
 
           if (active.some((l) => l.bookId === bookId)) {
-            throw HttpError.conflict('Reader already has an active loan of this book');
+            throw HttpError.conflict('Читач уже має активну видачу цієї книжки');
           }
           if (active.length >= MAX_ACTIVE_LOANS) {
             throw HttpError.unprocessable(
-              `Reader has reached the limit of ${MAX_ACTIVE_LOANS} active loans`,
-              [{ field: 'readerId', message: `active loans: ${active.length}` }],
+              `Читач досяг ліміту активних видач (${MAX_ACTIVE_LOANS})`,
+              [{ field: 'readerId', message: `активних видач: ${active.length}` }],
             );
           }
           const overdue = active.filter((l) => l.dueDate < now);
           if (overdue.length > 0) {
             throw HttpError.unprocessable(
-              'Reader has overdue loans; return them before borrowing new books',
-              overdue.map((l) => ({ field: 'readerId', message: `overdue loan ${l.id}` })),
+              'Читач має прострочені видачі; поверніть їх, перш ніж брати нові книжки',
+              overdue.map((l) => ({ field: 'readerId', message: `прострочена видача ${l.id}` })),
             );
           }
 
@@ -172,7 +167,7 @@ export function createLoanService(
       } catch (err) {
         // Захисна сітка: частковий унікальний індекс (bookId, readerId) для активних видач.
         if (err?.code === 11000) {
-          throw HttpError.conflict('Reader already has an active loan of this book');
+          throw HttpError.conflict('Читач уже має активну видачу цієї книжки');
         }
         throw err;
       }
@@ -184,7 +179,7 @@ export function createLoanService(
       const loan = await withTransaction(async (session) => {
         const existing = await getExisting(id, session);
         if (existing.status === 'returned') {
-          throw HttpError.conflict('Loan has already been returned');
+          throw HttpError.conflict('Видачу вже повернено');
         }
 
         const updated = await loanDao.update(
@@ -192,7 +187,7 @@ export function createLoanService(
           { status: 'returned', returnDate: new Date() },
           { session, filter: { status: 'active' } },
         );
-        if (!updated) throw HttpError.conflict('Loan has already been returned');
+        if (!updated) throw HttpError.conflict('Видачу вже повернено');
 
         await bookDao.adjustAvailableCopies(existing.bookId, 1, { session });
         return updated;
@@ -206,13 +201,13 @@ export function createLoanService(
       const loan = await getExisting(id);
 
       if (loan.status === 'returned') {
-        throw HttpError.conflict('Returned loan cannot be extended');
+        throw HttpError.conflict('Повернену видачу не можна продовжити');
       }
       if (loan.extended) {
-        throw HttpError.unprocessable('Loan has already been extended once');
+        throw HttpError.unprocessable('Видачу вже продовжували один раз');
       }
       if (loan.dueDate < now) {
-        throw HttpError.unprocessable('Overdue loan cannot be extended');
+        throw HttpError.unprocessable('Прострочену видачу не можна продовжити');
       }
 
       // Атомарне умовне оновлення: ті самі умови перевіряються ще раз у запиті до БД.
@@ -222,7 +217,7 @@ export function createLoanService(
         { filter: { status: 'active', extended: { $ne: true }, dueDate: { $gte: now } } },
       );
       if (!updated) {
-        throw HttpError.conflict('Loan was modified concurrently, please retry');
+        throw HttpError.conflict('Видачу одночасно змінили, повторіть спробу');
       }
       return present(updated);
     },

@@ -1,6 +1,9 @@
 import { ObjectId } from 'mongodb';
 import { getDb } from '../config/db.js';
 
+/** Службове поле для lock(): не є частиною сутності, не повертається з DAO. */
+const LOCK_FIELD = '_txLock';
+
 /**
  * Перетворює рядок/ObjectId на ObjectId. Невалідне значення → null (без винятку драйвера).
  */
@@ -69,7 +72,8 @@ export class BaseDao {
 
   map(doc) {
     if (!doc) return null;
-    const { _id, ...rest } = doc;
+    // eslint-disable-next-line no-unused-vars
+    const { _id, [LOCK_FIELD]: _lock, ...rest } = doc;
     return this.fromDb({ id: _id.toHexString(), ...rest });
   }
 
@@ -89,13 +93,15 @@ export class BaseDao {
   }
 
   // ---------- CRUD ----------
+  // Усі методи приймають необов'язковий останній параметр { session } — для роботи
+  // всередині транзакції (див. dao/transaction.js). Без нього поводяться як раніше.
 
   /**
    * @param {object} filter  фільтр MongoDB (можна використовувати `id`)
-   * @param {{ sort?: object, skip?: number, limit?: number, projection?: object }} options
+   * @param {{ sort?: object, skip?: number, limit?: number, projection?: object, session? }} options
    */
-  async findAll(filter = {}, { sort, skip, limit, projection } = {}) {
-    let cursor = this.collection.find(this.buildFilter(filter), { projection });
+  async findAll(filter = {}, { sort, skip, limit, projection, session } = {}) {
+    let cursor = this.collection.find(this.buildFilter(filter), { projection, session });
     const dbSort = this.buildSort(sort);
     if (dbSort) cursor = cursor.sort(dbSort);
     if (skip) cursor = cursor.skip(skip);
@@ -104,28 +110,32 @@ export class BaseDao {
     return docs.map((doc) => this.map(doc));
   }
 
-  async findById(id) {
+  async findById(id, { session } = {}) {
     const _id = toObjectId(id);
     if (!_id) return null;
-    return this.map(await this.collection.findOne({ _id }));
+    return this.map(await this.collection.findOne({ _id }, { session }));
   }
 
-  async create(entity) {
+  async create(entity, { session } = {}) {
     const now = new Date();
     const doc = { ...this.toDb(this.pickFields(entity)), createdAt: now, updatedAt: now };
-    const { insertedId } = await this.collection.insertOne(doc);
+    const { insertedId } = await this.collection.insertOne(doc, { session });
     return this.map({ _id: insertedId, ...doc });
   }
 
-  /** Часткове оновлення ($set). Повертає оновлену сутність або null, якщо не знайдено. */
-  async update(id, data) {
+  /**
+   * Часткове оновлення ($set). Повертає оновлену сутність або null, якщо не знайдено.
+   * `filter` — додаткова умова (атомарне умовне оновлення): якщо документ їй
+   * не відповідає, нічого не змінюється й повертається null.
+   */
+  async update(id, data, { session, filter } = {}) {
     const _id = toObjectId(id);
     if (!_id) return null;
     const changes = { ...this.toDb(this.pickFields(data)), updatedAt: new Date() };
     const doc = await this.collection.findOneAndUpdate(
-      { _id },
+      { ...(filter ? this.buildFilter(filter) : {}), _id },
       { $set: changes },
-      { returnDocument: 'after' },
+      { returnDocument: 'after', session },
     );
     return this.map(doc);
   }
@@ -135,7 +145,7 @@ export class BaseDao {
    * зі списку fields видаляються. createdAt зберігається, updatedAt оновлюється.
    * Повертає оновлену сутність або null, якщо не знайдено.
    */
-  async replace(id, entity) {
+  async replace(id, entity, { session } = {}) {
     const _id = toObjectId(id);
     if (!_id) return null;
     const picked = this.pickFields(entity);
@@ -143,20 +153,41 @@ export class BaseDao {
     const missing = this.constructor.fields.filter((f) => !(f in picked));
     const update = { $set };
     if (missing.length > 0) update.$unset = Object.fromEntries(missing.map((f) => [f, '']));
-    const doc = await this.collection.findOneAndUpdate({ _id }, update, { returnDocument: 'after' });
+    const doc = await this.collection.findOneAndUpdate({ _id }, update, {
+      returnDocument: 'after',
+      session,
+    });
     return this.map(doc);
   }
 
   /** @returns {Promise<boolean>} true, якщо документ видалено. */
-  async delete(id) {
+  async delete(id, { session } = {}) {
     const _id = toObjectId(id);
     if (!_id) return false;
-    const { deletedCount } = await this.collection.deleteOne({ _id });
+    const { deletedCount } = await this.collection.deleteOne({ _id }, { session });
     return deletedCount === 1;
   }
 
-  async count(filter = {}) {
-    return this.collection.countDocuments(this.buildFilter(filter));
+  async count(filter = {}, { session } = {}) {
+    return this.collection.countDocuments(this.buildFilter(filter), { session });
+  }
+
+  /**
+   * «Блокування» документа всередині транзакції: службовий запис у документ,
+   * щоб конкурентна транзакція, яка теж пише в нього (або видаляє), отримала
+   * WriteConflict і була повторена драйвером. MongoDB не має SELECT ... FOR UPDATE,
+   * тож це стандартний прийом проти write skew. Поле не повертається в сутності.
+   * @returns {Promise<boolean>} true, якщо документ існує.
+   */
+  async lock(id, { session } = {}) {
+    const _id = toObjectId(id);
+    if (!_id) return false;
+    const { matchedCount } = await this.collection.updateOne(
+      { _id },
+      { $inc: { [LOCK_FIELD]: 1 } },
+      { session },
+    );
+    return matchedCount === 1;
   }
 
   /** Ідемпотентно створює індекси колекції (createIndexes не змінює вже наявні). */

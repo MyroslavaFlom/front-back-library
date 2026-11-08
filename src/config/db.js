@@ -101,6 +101,14 @@ export function getDb() {
   return db;
 }
 
+/** MongoClient потрібен DAO-шару для сесій/транзакцій (startSession). */
+export function getClient() {
+  if (!client || !db) {
+    throw new Error('Database is not connected. Call connectDb() first.');
+  }
+  return client;
+}
+
 export async function pingDb() {
   await getDb().command({ ping: 1 });
 }

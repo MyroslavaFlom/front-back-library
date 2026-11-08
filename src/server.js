@@ -10,7 +10,7 @@ async function start() {
   await ensureIndexes();
   console.log('MongoDB indexes ensured');
 
-  const services = createServices(getDaos());
+  const services = createServices(getDaos(), { nodeEnv: config.nodeEnv });
   const app = createApp({ services });
   const server = app.listen(config.port, () => {
     console.log(`Server listening on http://localhost:${config.port}`);

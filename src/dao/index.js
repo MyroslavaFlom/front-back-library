@@ -1,11 +1,13 @@
+import { BaseDao } from './base.dao.js';
 import { BookDao } from './book.dao.js';
 import { ReaderDao } from './reader.dao.js';
 import { LoanDao } from './loan.dao.js';
+import { withTransaction } from './transaction.js';
 
 /**
  * Фабрика реєстру DAO. Сервіси отримують потрібні DAO як залежність:
  *
- *   export function createBookService({ bookDao }) { ... }
+ *   export function createBookService({ bookDao, loanDao, withTransaction }) { ... }
  *   const bookService = createBookService(getDaos());
  *
  * У тестах можна передати власні (mock) реалізації замість getDaos().
@@ -15,6 +17,7 @@ export function createDaoRegistry() {
     bookDao: new BookDao(),
     readerDao: new ReaderDao(),
     loanDao: new LoanDao(),
+    withTransaction,
   });
 }
 
@@ -28,5 +31,6 @@ export function getDaos() {
 
 /** Ідемпотентно створює індекси для всіх колекцій. Викликати після connectDb(). */
 export async function ensureIndexes(daos = getDaos()) {
-  await Promise.all(Object.values(daos).map((dao) => dao.ensureIndexes()));
+  const all = Object.values(daos).filter((dao) => dao instanceof BaseDao);
+  await Promise.all(all.map((dao) => dao.ensureIndexes()));
 }

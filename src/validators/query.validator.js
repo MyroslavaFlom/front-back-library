@@ -47,6 +47,34 @@ export function parseBookListQuery(query = {}, options = {}) {
   return { ...list, yearFrom: yearFrom ?? undefined, yearTo: yearTo ?? undefined, available };
 }
 
+export const LOAN_STATUS_FILTERS = ['active', 'overdue', 'returned'];
+
+/**
+ * Параметри списку видач: усе з parseListQuery плюс
+ *   status   — active | overdue | returned;
+ *   readerId, bookId — необов'язкові рядки (невалідний id просто нічого не знайде).
+ */
+export function parseLoanListQuery(query = {}, options = {}) {
+  const errors = [];
+  const list = collectListQuery(query, options, errors);
+
+  let status;
+  if (query.status !== undefined) {
+    status = String(query.status).toLowerCase();
+    if (!LOAN_STATUS_FILTERS.includes(status)) {
+      errors.push({ field: 'status', message: `must be one of: ${LOAN_STATUS_FILTERS.join(', ')}` });
+    }
+  }
+
+  throwIfErrors(errors);
+  return {
+    ...list,
+    status,
+    readerId: optionalString(query.readerId),
+    bookId: optionalString(query.bookId),
+  };
+}
+
 export function totalPages(total, limit) {
   return Math.ceil(total / limit);
 }

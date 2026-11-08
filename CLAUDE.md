@@ -39,6 +39,7 @@ routes → controllers → services → dao → MongoDB
 - Кожен шар викликає тільки наступний шар; пропускати шари не можна.
 - Помилки з HTTP-статусом кидаємо як `new HttpError(status, message, details)` або `HttpError.badRequest/notFound/conflict/unprocessable(...)`; їх обробляє `errorHandler`. Express 5 сам передає відхилені проміси з async-хендлерів у `errorHandler` — `try/catch` у контролерах не потрібен.
 - Сервіси створюються фабриками з DAO у параметрах: `createBookService(getDaos())`. Помилку дубліката (E11000) перетворюємо на 409 через `toConflict()` з `utils/mongoErrors.js`.
+- Операції, що змінюють кілька документів або перевіряють інвариант перед записом (видача/повернення, видалення книжки/читача, зміна `totalCopies`), виконуються в транзакції: `withTransaction(async (session) => ...)` з реєстру DAO; усі виклики DAO всередині — з `{ session }`. Колбек має бути ідемпотентним (драйвер повторює його при WriteConflict). Проти write skew документ, на який спирається перевірка, «блокується» записом (`dao.lock(id, { session })`).
 - Формат помилки API: `{ "error": { "status", "message", "details" } }`.
 - Усі маршрути — під префіксом `/api`, реєструються у `src/routes/index.js`.
 - Іменування файлів: `<entity>.routes.js`, `<entity>.controller.js`, `<entity>.service.js`, `<entity>.dao.js`.

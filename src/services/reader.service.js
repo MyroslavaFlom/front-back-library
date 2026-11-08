@@ -12,11 +12,12 @@ const SORTABLE = ['name', 'email', 'registeredAt', 'createdAt'];
 
 /**
  * @param {{ readerDao: import('../dao/reader.dao.js').ReaderDao,
- *           loanDao: import('../dao/loan.dao.js').LoanDao }} deps
+ *           loanDao: import('../dao/loan.dao.js').LoanDao,
+ *           withTransaction: typeof import('../dao/transaction.js').withTransaction }} deps
  */
-export function createReaderService({ readerDao, loanDao }) {
-  async function getExisting(id) {
-    const reader = await readerDao.findById(id);
+export function createReaderService({ readerDao, loanDao, withTransaction }) {
+  async function getExisting(id, session) {
+    const reader = await readerDao.findById(id, { session });
     if (!reader) throw HttpError.notFound(`Reader with id "${id}" not found`);
     return reader;
   }
@@ -76,14 +77,22 @@ export function createReaderService({ readerDao, loanDao }) {
       }
     },
 
+    /**
+     * Видалення заборонене, поки є активні видачі. Перевірка й видалення — в одній
+     * транзакції; видача книжки «блокує» документ читача (readerDao.lock), тож
+     * конкурентні видача й видалення конфліктують і не можуть пройти обидві.
+     */
     async delete(id) {
-      await getExisting(id);
-      const active = await loanDao.count({ readerId: id, status: 'active' });
-      if (active > 0) {
-        throw HttpError.conflict(`Reader cannot be deleted: they have ${active} active loan(s)`);
-      }
-      const deleted = await readerDao.delete(id);
-      if (!deleted) throw HttpError.notFound(`Reader with id "${id}" not found`);
+      await withTransaction(async (session) => {
+        await getExisting(id, session);
+        const active = await loanDao.count({ readerId: id, status: 'active' }, { session });
+        if (active > 0) {
+          throw HttpError.conflict(`Reader cannot be deleted: they have ${active} active loan(s)`);
+        }
+        if (!(await readerDao.delete(id, { session }))) {
+          throw HttpError.notFound(`Reader with id "${id}" not found`);
+        }
+      });
     },
   };
 }

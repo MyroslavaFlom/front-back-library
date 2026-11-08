@@ -4,12 +4,27 @@ import { BaseDao, toObjectId } from './base.dao.js';
 const REF_FIELDS = ['bookId', 'readerId'];
 
 export class LoanDao extends BaseDao {
-  static fields = ['bookId', 'readerId', 'loanDate', 'dueDate', 'returnDate', 'status'];
+  static fields = [
+    'bookId',
+    'readerId',
+    'loanDate',
+    'dueDate',
+    'returnDate',
+    'status',
+    'extended',
+  ];
 
   static indexes = [
     { key: { bookId: 1 }, name: 'bookId_1' },
     { key: { readerId: 1 }, name: 'readerId_1' },
     { key: { status: 1 }, name: 'status_1' },
+    // Захисна сітка на рівні БД: один читач — не більше однієї активної видачі тієї самої книжки.
+    {
+      key: { bookId: 1, readerId: 1 },
+      name: 'book_reader_active_unique',
+      unique: true,
+      partialFilterExpression: { status: 'active' },
+    },
   ];
 
   constructor() {

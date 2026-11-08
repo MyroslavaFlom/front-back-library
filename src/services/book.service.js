@@ -11,25 +11,31 @@ import {
 const SORTABLE = ['title', 'author', 'year', 'rating', 'pages', 'createdAt'];
 
 /**
+ * Перевірки активних видач і запис книжки виконуються в одній транзакції:
+ * видача (LoanService) теж пише в документ книжки ($inc availableCopies), тож
+ * конкурентні операції конфліктують (WriteConflict) і драйвер повторює одну з них
+ * уже з актуальними даними.
+ *
  * @param {{ bookDao: import('../dao/book.dao.js').BookDao,
- *           loanDao: import('../dao/loan.dao.js').LoanDao }} deps
+ *           loanDao: import('../dao/loan.dao.js').LoanDao,
+ *           withTransaction: typeof import('../dao/transaction.js').withTransaction }} deps
  */
-export function createBookService({ bookDao, loanDao }) {
-  async function getExisting(id) {
-    const book = await bookDao.findById(id);
+export function createBookService({ bookDao, loanDao, withTransaction }) {
+  async function getExisting(id, session) {
+    const book = await bookDao.findById(id, { session });
     if (!book) throw HttpError.notFound(`Book with id "${id}" not found`);
     return book;
   }
 
-  function countActiveLoans(bookId) {
-    return loanDao.count({ bookId, status: 'active' });
+  function countActiveLoans(bookId, session) {
+    return loanDao.count({ bookId, status: 'active' }, { session });
   }
 
   /**
    * Узгоджує totalCopies/availableCopies з активними видачами.
    * Повертає змінені дані з коректним availableCopies (або без нього, якщо він не змінюється).
    */
-  async function reconcileCopies(existing, changes, { replace = false } = {}) {
+  async function reconcileCopies(existing, changes, session, { replace = false } = {}) {
     const totalChanged =
       changes.totalCopies !== undefined && changes.totalCopies !== existing.totalCopies;
     const availableGiven = changes.availableCopies !== undefined;
@@ -40,7 +46,7 @@ export function createBookService({ bookDao, loanDao }) {
     }
 
     const total = changes.totalCopies ?? existing.totalCopies;
-    const active = await countActiveLoans(existing.id);
+    const active = await countActiveLoans(existing.id, session);
 
     if (total < active) {
       throw HttpError.unprocessable(
@@ -63,6 +69,15 @@ export function createBookService({ bookDao, loanDao }) {
     return { ...changes, availableCopies: maxAvailable };
   }
 
+  /** Виконує fn у транзакції, перетворюючи E11000 на 409. */
+  async function inTransaction(fn) {
+    try {
+      return await withTransaction(fn);
+    } catch (err) {
+      throw toConflict(err, 'Book');
+    }
+  }
+
   return {
     /**
      * @param {{ page?, limit?, sort?, search?, genre?, author?, yearFrom?, yearTo?, available? }} query
@@ -82,6 +97,7 @@ export function createBookService({ bookDao, loanDao }) {
       }
       if (available === true) filter.availableCopies = { $gt: 0 };
       if (available === false) filter.availableCopies = 0;
+
       const search = optionalString(query.search);
       const genre = optionalString(query.genre);
       const author = optionalString(query.author);
@@ -112,44 +128,45 @@ export function createBookService({ bookDao, loanDao }) {
 
     /** PUT: повна заміна (усі обов'язкові поля, відсутні необов'язкові видаляються). */
     async replace(id, input) {
-      const existing = await getExisting(id);
-      const data = await reconcileCopies(existing, validateBook(input), { replace: true });
-      try {
-        return (await bookDao.replace(id, data)) ?? (await getExisting(id));
-      } catch (err) {
-        throw toConflict(err, 'Book');
-      }
+      const data = validateBook(input);
+      return inTransaction(async (session) => {
+        const existing = await getExisting(id, session);
+        const toSave = await reconcileCopies(existing, data, session, { replace: true });
+        return (await bookDao.replace(id, toSave, { session })) ?? getExisting(id, session);
+      });
     },
 
     /** PATCH: часткове оновлення лише переданих полів. */
     async patch(id, input) {
-      const existing = await getExisting(id);
       const changes = validateBookPatch(input);
+      return inTransaction(async (session) => {
+        const existing = await getExisting(id, session);
 
-      // availableCopies без totalCopies у тілі — перевіряємо проти збереженого totalCopies.
-      if (changes.availableCopies !== undefined && changes.totalCopies === undefined
-          && changes.availableCopies > existing.totalCopies) {
-        throw HttpError.badRequest('Validation failed', [
-          { field: 'availableCopies', message: `must be <= totalCopies (${existing.totalCopies})` },
-        ]);
-      }
+        // availableCopies без totalCopies у тілі — перевіряємо проти збереженого totalCopies.
+        if (changes.availableCopies !== undefined && changes.totalCopies === undefined
+            && changes.availableCopies > existing.totalCopies) {
+          throw HttpError.badRequest('Validation failed', [
+            { field: 'availableCopies', message: `must be <= totalCopies (${existing.totalCopies})` },
+          ]);
+        }
 
-      const data = await reconcileCopies(existing, changes);
-      try {
-        return (await bookDao.update(id, data)) ?? (await getExisting(id));
-      } catch (err) {
-        throw toConflict(err, 'Book');
-      }
+        const toSave = await reconcileCopies(existing, changes, session);
+        return (await bookDao.update(id, toSave, { session })) ?? getExisting(id, session);
+      });
     },
 
+    /** Видалення заборонене, поки є активні видачі (перевірка й видалення — атомарно). */
     async delete(id) {
-      await getExisting(id);
-      const active = await countActiveLoans(id);
-      if (active > 0) {
-        throw HttpError.conflict(`Book cannot be deleted: it has ${active} active loan(s)`);
-      }
-      const deleted = await bookDao.delete(id);
-      if (!deleted) throw HttpError.notFound(`Book with id "${id}" not found`);
+      await withTransaction(async (session) => {
+        await getExisting(id, session);
+        const active = await countActiveLoans(id, session);
+        if (active > 0) {
+          throw HttpError.conflict(`Book cannot be deleted: it has ${active} active loan(s)`);
+        }
+        if (!(await bookDao.delete(id, { session }))) {
+          throw HttpError.notFound(`Book with id "${id}" not found`);
+        }
+      });
     },
   };
 }

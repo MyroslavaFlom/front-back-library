@@ -39,6 +39,9 @@ routes → controllers → services → dao → MongoDB
    PORT=3000
    MONGO_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
    DB_NAME=library_service
+   SESSION_SECRET=<довгий випадковий рядок>
+   ADMIN_USERNAME=admin
+   ADMIN_PASSWORD=<пароль від 8 символів>
    ```
 2. Встановіть залежності (для обох пакетів одразу):
    ```
@@ -48,7 +51,8 @@ routes → controllers → services → dao → MongoDB
    ```
    npm run seed
    ```
-   15 книжок різних жанрів, 5 читачів, 11 видач (з них 4 повернені й 3 прострочені).
+   15 книжок різних жанрів, 5 читачів, 11 видач (з них 4 повернені й 3 прострочені),
+   а також адміністратор з `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
 4. Розробка — сервер і клієнт разом:
    ```
    npm run dev
@@ -63,6 +67,20 @@ routes → controllers → services → dao → MongoDB
 ## Ендпоінти
 
 Усі маршрути — під префіксом `/api`.
+
+### Автентифікація й доступ
+
+Сесія в cookie `library.sid` (httpOnly, 2 год). Перегляд книжок — публічний; зміни книжок, читачі, видачі
+й статистика — лише для `admin` (без входу — 401, без прав — 403).
+Кожен POST/PUT/PATCH/DELETE має містити заголовок `X-CSRF-Token` з токеном від `GET /auth/csrf` (або з відповіді login).
+
+| Метод | Шлях | Опис |
+|---|---|---|
+| GET | `/auth/csrf` | `{ csrfToken }` для поточної сесії |
+| POST | `/auth/login` | `{ username, password }` → `{ user, csrfToken }`; 5 спроб / 15 хв |
+| POST | `/auth/logout` | Завершити сесію (204) |
+| GET | `/auth/me` | Поточний користувач або 401 |
+| GET | `/events` | Server-Sent Events: `book.created`, `book.updated`, `book.deleted`, `loan.changed` (лише admin) |
 
 ### Книжки
 

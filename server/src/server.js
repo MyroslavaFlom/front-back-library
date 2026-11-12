@@ -1,6 +1,8 @@
 import { config } from './config/env.js';
 import { connectDb, closeDb, DbConnectionError } from './config/db.js';
 import { createApp } from './app.js';
+import { createSessionStore } from './config/session.js';
+import { createEventBus } from './events/index.js';
 import { ensureIndexes, getDaos } from './dao/index.js';
 import { createServices } from './services/index.js';
 
@@ -10,8 +12,10 @@ async function start() {
   await ensureIndexes();
   console.log('MongoDB indexes ensured');
 
-  const services = createServices(getDaos(), { nodeEnv: config.nodeEnv });
-  const app = createApp({ services });
+  const events = createEventBus();
+  const services = createServices(getDaos(), { nodeEnv: config.nodeEnv, events });
+  const sessionStore = createSessionStore();
+  const app = createApp({ services, sessionStore });
   const server = app.listen(config.port, () => {
     console.log(`Server listening on http://localhost:${config.port}`);
   });
@@ -31,11 +35,14 @@ async function start() {
     forceExit.unref();
 
     try {
+      // Закрити SSE-потоки, інакше server.close() чекатиме їх до таймауту.
+      events.close();
       await new Promise((resolve, reject) => {
         server.close((err) => (err ? reject(err) : resolve()));
         server.closeIdleConnections();
       });
       console.log('HTTP server closed');
+      await sessionStore.close();
       await closeDb();
       console.log('MongoDB connection closed');
       process.exit(0);

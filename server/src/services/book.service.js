@@ -1,6 +1,7 @@
 import { HttpError } from '../utils/HttpError.js';
 import { toConflict } from '../utils/mongoErrors.js';
 import { validateBook, validateBookPatch } from '../validators/book.validator.js';
+import { EVENT_TYPES, noopEvents } from '../events/index.js';
 import {
   parseBookListQuery,
   optionalString,
@@ -10,7 +11,8 @@ import {
 
 const SORTABLE = ['title', 'author', 'year', 'rating', 'pages', 'createdAt'];
 
-export function createBookService({ bookDao, loanDao, withTransaction }) {
+// Події публікуються після успішного commit (не всередині колбека транзакції, який драйвер може повторити).
+export function createBookService({ bookDao, loanDao, withTransaction, events = noopEvents }) {
   async function getExisting(id, session) {
     const book = await bookDao.findById(id, { session });
     if (!book) throw HttpError.notFound(`Книжку з id "${id}" не знайдено`);
@@ -99,25 +101,30 @@ export function createBookService({ bookDao, loanDao, withTransaction }) {
     async create(input) {
       const data = validateBook(input);
       data.availableCopies ??= data.totalCopies;
+      let book;
       try {
-        return await bookDao.create(data);
+        book = await bookDao.create(data);
       } catch (err) {
         throw toConflict(err, 'Книжка');
       }
+      events.publish(EVENT_TYPES.BOOK_CREATED, { book });
+      return book;
     },
 
     async replace(id, input) {
       const data = validateBook(input);
-      return inTransaction(async (session) => {
+      const book = await inTransaction(async (session) => {
         const existing = await getExisting(id, session);
         const toSave = await reconcileCopies(existing, data, session, { replace: true });
         return (await bookDao.replace(id, toSave, { session })) ?? getExisting(id, session);
       });
+      events.publish(EVENT_TYPES.BOOK_UPDATED, { book });
+      return book;
     },
 
     async patch(id, input) {
       const changes = validateBookPatch(input);
-      return inTransaction(async (session) => {
+      const book = await inTransaction(async (session) => {
         const existing = await getExisting(id, session);
 
         // availableCopies без totalCopies у тілі — перевіряємо проти збереженого totalCopies.
@@ -131,6 +138,8 @@ export function createBookService({ bookDao, loanDao, withTransaction }) {
         const toSave = await reconcileCopies(existing, changes, session);
         return (await bookDao.update(id, toSave, { session })) ?? getExisting(id, session);
       });
+      events.publish(EVENT_TYPES.BOOK_UPDATED, { book });
+      return book;
     },
 
     async delete(id) {
@@ -144,6 +153,7 @@ export function createBookService({ bookDao, loanDao, withTransaction }) {
           throw HttpError.notFound(`Книжку з id "${id}" не знайдено`);
         }
       });
+      events.publish(EVENT_TYPES.BOOK_DELETED, { id });
     },
   };
 }

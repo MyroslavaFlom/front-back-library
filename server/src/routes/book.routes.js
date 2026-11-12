@@ -1,14 +1,16 @@
 import { Router } from 'express';
+import { requireAdmin } from '../middlewares/auth.js';
 
+// Читання каталогу — публічне; зміни — лише для admin.
 export function createBookRoutes(controller) {
   const router = Router();
 
   router.get('/', controller.list);
-  router.post('/', controller.create);
   router.get('/:id', controller.getById);
-  router.put('/:id', controller.replace);
-  router.patch('/:id', controller.patch);
-  router.delete('/:id', controller.remove);
+  router.post('/', requireAdmin, controller.create);
+  router.put('/:id', requireAdmin, controller.replace);
+  router.patch('/:id', requireAdmin, controller.patch);
+  router.delete('/:id', requireAdmin, controller.remove);
 
   return router;
 }

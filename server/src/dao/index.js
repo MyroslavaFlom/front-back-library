@@ -2,6 +2,7 @@ import { BaseDao } from './base.dao.js';
 import { BookDao } from './book.dao.js';
 import { ReaderDao } from './reader.dao.js';
 import { LoanDao } from './loan.dao.js';
+import { UserDao } from './user.dao.js';
 import { withTransaction } from './transaction.js';
 
 export function createDaoRegistry() {
@@ -9,6 +10,7 @@ export function createDaoRegistry() {
     bookDao: new BookDao(),
     readerDao: new ReaderDao(),
     loanDao: new LoanDao(),
+    userDao: new UserDao(),
     withTransaction,
   });
 }

@@ -13,8 +13,8 @@
 - `npm run dev` — сервер (nodemon, :3000) і клієнт (Vite, :5173) разом через `concurrently`. Vite проксує `/api` на `http://localhost:3000`.
 - `npm run build` — збирає клієнт у `client/dist`.
 - `npm start` — сервер у production (`NODE_ENV=production`): віддає `/api` і `client/dist`, а для всіх інших GET-маршрутів — `index.html` (клієнтський роутинг).
-- `npm run seed` — очищує books/readers/loans і заповнює демо-даними (`server/src/scripts/seed.js`).
-- Конфіг сервера — `server/.env` (шаблон `server/.env.example`): `PORT`, `MONGO_URI`, `DB_NAME`. `.env` читається з поточного каталогу, тож серверні скрипти запускаються з `server/` (workspace-скрипти так і роблять).
+- `npm run seed` — очищує books/readers/loans, заповнює демо-даними й створює/оновлює адміна з `ADMIN_USERNAME`/`ADMIN_PASSWORD` (`server/src/scripts/seed.js`; колекцію users не очищує).
+- Конфіг сервера — `server/.env` (шаблон `server/.env.example`): `PORT`, `MONGO_URI`, `DB_NAME`, `SESSION_SECRET`, `ADMIN_USERNAME`/`ADMIN_PASSWORD` (для seed); необов'язкові `CLIENT_ORIGIN`, `COOKIE_SECURE`, `TRUST_PROXY`. `.env` читається з поточного каталогу, тож серверні скрипти запускаються з `server/` (workspace-скрипти так і роблять).
 - Залежність ставимо у свій пакет: `npm install <pkg> -w server` або `-w client`.
 
 ## Сервер: архітектура
@@ -31,14 +31,15 @@ routes → controllers → services → dao → MongoDB
 | controllers | `server/src/controllers/` | Читає `req` (params/query/body), викликає сервіс, формує HTTP-відповідь (статус, JSON). |
 | services | `server/src/services/` | Бізнес-логіка та валідація правил предметної області. Не знає про `req`/`res`. |
 | dao | `server/src/dao/` | Єдине місце роботи з колекціями MongoDB (`getDb().collection(...)`), конвертація `ObjectId`. |
-| config | `server/src/config/` | `env.js` — завантаження й перевірка `.env`; `db.js` — singleton `MongoClient` (`connectDb`, `getDb`, `pingDb`, `closeDb`). |
+| config | `server/src/config/` | `env.js` — завантаження й перевірка `.env`; `db.js` — singleton `MongoClient` (`connectDb`, `getDb`, `getClient`, `pingDb`, `closeDb`); `session.js` — express-session + connect-mongo. |
+| events | `server/src/events/` | Шина доменних подій у процесі (`createEventBus`: `publish`, `subscribe`, `close`), `EVENT_TYPES`. |
 | validators | `server/src/validators/` | Валідація й нормалізація вхідних даних (`validate.js` + схеми сутностей, `query.validator.js`). Викликаються з сервісів; помилка → `HttpError` 400 з `details: [{ field, message }]`. |
-| middlewares | `server/src/middlewares/` | Наскрізні middleware: `notFound`, `errorHandler` тощо. |
+| middlewares | `server/src/middlewares/` | `auth.js` (`requireAuth`, `requireRole`, `requireAdmin`), `csrf.js`, `sanitize.js` (ключі з `$`/`.`), `rateLimit.js`, `notFound`, `errorHandler`. |
 | utils | `server/src/utils/` | Допоміжні утиліти (`HttpError` тощо). |
 
 `server/src/app.js` — збирає Express-застосунок (`createApp({ services })`), без підключення до БД і без `listen`; у production додає статику `client/dist` і SPA-fallback (регулярний вираз, що виключає `/api`).
 Зв'язування залежностей — один раз у `server.js`: `getDaos()` → `createServices(daos)` → `createApp({ services })` → `createApiRouter(services)` → `create<Entity>Controller(service)` → `create<Entity>Routes(controller)`.
-`server/src/server.js` — підключає БД, запускає HTTP-сервер, graceful shutdown (SIGINT/SIGTERM → закрити сервер → `closeDb()`).
+`server/src/server.js` — підключає БД, створює шину подій і сховище сесій, запускає HTTP-сервер, graceful shutdown (SIGINT/SIGTERM → `events.close()` (закриває SSE) → закрити сервер → `sessionStore.close()` → `closeDb()`).
 
 ### Правила сервера
 
@@ -52,6 +53,22 @@ routes → controllers → services → dao → MongoDB
 - Усі маршрути — під префіксом `/api`, реєструються у `server/src/routes/index.js`.
 - Іменування файлів: `<entity>.routes.js`, `<entity>.controller.js`, `<entity>.service.js`, `<entity>.dao.js`.
 - Секрети лише в `server/.env` (він у `.gitignore`); нові змінні додаємо також у `server/.env.example` і `server/src/config/env.js`.
+
+### Сесії, доступ і захист
+
+- Користувачі — колекція `users` через `UserDao` (`username`, `passwordHash` bcrypt, `role`: `admin` | `user`). `passwordHash` ніколи не повертається з API: `AuthService` віддає лише `{ id, username, role }`.
+- Сесія — express-session + connect-mongo (колекція `sessions`), cookie `library.sid`: httpOnly, sameSite `lax`, secure у production, 2 год (rolling). У сесії — `user` і `csrfToken`.
+- `/api/auth`: `GET /csrf` → `{ csrfToken }`; `POST /login` → регенерує сесію, `{ user, csrfToken }` (старий токен недійсний); `POST /logout` → 204; `GET /me` → `{ user }` або 401.
+- Доступ: GET `/books` — публічні; зміни книжок, `/readers`, `/loans`, `/stats` — `requireAdmin` у маршрутах. Без входу → 401, без ролі → 403. Новий захищений маршрут — додавати `requireAdmin`/`requireRole(...)` у файлі маршрутів.
+- Порядок на `/api` (`app.js`): `apiLimiter` → `rejectMongoOperators` → `csrfProtection` → маршрути. Тому змінювальний запит без `X-CSRF-Token` отримує 403 ще до перевірки входу.
+- Усі POST/PUT/PATCH/DELETE вимагають заголовок `X-CSRF-Token`, рівний токену сесії. Login обмежено 5 спробами / 15 хв з IP (`loginLimiter`).
+- helmet, JSON-тіло ≤ 100kb, CORS лише для `CLIENT_ORIGIN` з `credentials`.
+
+### Події (SSE)
+
+- `GET /api/events` — Server-Sent Events, heartbeat кожні 25 с. Типи: `book.created`, `book.updated`, `book.deleted`, `loan.changed` (останній — лише адміністраторам; фільтрує `EventService`).
+- Події публікують **лише сервіси** (`events.publish(...)` з `EVENT_TYPES`), **після** успішного commit — не всередині колбека `withTransaction` (його можуть повторити). Контролери й DAO про події не знають; шина передається в сервіси через `createServices(daos, { events })`.
+- Зміни видач (видача/повернення) також публікують `book.updated` зі свіжою книжкою — змінилась кількість вільних примірників.
 
 ## Клієнт: архітектура
 

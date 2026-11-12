@@ -12,6 +12,14 @@ export class HttpError extends Error {
     return new HttpError(400, message, details);
   }
 
+  static unauthorized(message = 'Потрібна автентифікація', details) {
+    return new HttpError(401, message, details);
+  }
+
+  static forbidden(message = 'Недостатньо прав', details) {
+    return new HttpError(403, message, details);
+  }
+
   static notFound(message = 'Не знайдено', details) {
     return new HttpError(404, message, details);
   }
@@ -22,5 +30,9 @@ export class HttpError extends Error {
 
   static unprocessable(message = 'Неможливо обробити запит', details) {
     return new HttpError(422, message, details);
+  }
+
+  static tooManyRequests(message = 'Забагато запитів, спробуйте пізніше', details) {
+    return new HttpError(429, message, details);
   }
 }

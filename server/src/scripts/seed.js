@@ -2,6 +2,7 @@ import { config } from '../config/env.js';
 import { connectDb, closeDb, DbConnectionError } from '../config/db.js';
 import { ensureIndexes, getDaos } from '../dao/index.js';
 import { DEFAULT_LOAN_DAYS } from '../services/loan.service.js';
+import { createAuthService, MIN_PASSWORD_LENGTH } from '../services/auth.service.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const daysAgo = (days) => new Date(Date.now() - days * DAY_MS);
@@ -53,10 +54,24 @@ const LOANS = [
   { book: 'dune', reader: 'petro', loanDaysAgo: 2, returnedDaysAgo: null },
 ];
 
+// Перевіряємо дані адміністратора до очищення колекцій, щоб не лишити базу без адміна.
+function adminCredentials() {
+  const { adminUsername: username, adminPassword: password } = config;
+  if (!username || !password) {
+    throw new Error('Задайте ADMIN_USERNAME і ADMIN_PASSWORD у server/.env');
+  }
+  if (password.length < MIN_PASSWORD_LENGTH) {
+    throw new Error(`ADMIN_PASSWORD має містити щонайменше ${MIN_PASSWORD_LENGTH} символів`);
+  }
+  return { username, password };
+}
+
 async function seed() {
+  const admin = adminCredentials();
   await connectDb();
   await ensureIndexes();
-  const { bookDao, readerDao, loanDao } = getDaos();
+  const daos = getDaos();
+  const { bookDao, readerDao, loanDao } = daos;
 
   const [loansDeleted, booksDeleted, readersDeleted] = await Promise.all([
     loanDao.deleteAll(),
@@ -105,6 +120,10 @@ async function seed() {
     `Додано в "${config.dbName}": books ${BOOKS.length}, readers ${READERS.length}, ` +
       `loans ${LOANS.length} (повернених ${returnedCount}, прострочених ${overdue})`,
   );
+
+  // Користувачів не очищаємо: адміна створюємо або оновлюємо його пароль і роль.
+  const { user, created } = await createAuthService(daos).upsertUser({ ...admin, role: 'admin' });
+  console.log(`Адміністратор "${user.username}" ${created ? 'створений' : 'оновлений'}`);
 }
 
 seed()

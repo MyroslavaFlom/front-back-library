@@ -2,6 +2,7 @@ import { HttpError } from '../utils/HttpError.js';
 import { validateLoanCreate } from '../validators/loan.validator.js';
 import { parseLoanListQuery, totalPages } from '../validators/query.validator.js';
 import { calculateFine } from './fine.js';
+import { EVENT_TYPES, noopEvents } from '../events/index.js';
 
 export { FINE_PER_DAY_UAH } from './fine.js';
 export const DEFAULT_LOAN_DAYS = 14;
@@ -39,9 +40,17 @@ function statusFilter(status, now) {
 }
 
 export function createLoanService(
-  { bookDao, readerDao, loanDao, withTransaction },
+  { bookDao, readerDao, loanDao, withTransaction, events = noopEvents },
   { allowBackdatedLoans = false } = {},
 ) {
+  // Після commit: loan.changed (лише для адміністраторів) і book.updated — змінилась кількість вільних примірників.
+  async function publishLoanChange(action, loan) {
+    events.publish(EVENT_TYPES.LOAN_CHANGED, { action, loan });
+    if (action === 'extended') return;
+    const book = await bookDao.findById(loan.bookId);
+    if (book) events.publish(EVENT_TYPES.BOOK_UPDATED, { book });
+  }
+
   async function getExisting(id, session) {
     const loan = await loanDao.findById(id, { session });
     if (!loan) throw HttpError.notFound(`Видачу з id "${id}" не знайдено`);
@@ -148,7 +157,9 @@ export function createLoanService(
         }
         throw err;
       }
-      return present(loan);
+      const result = present(loan);
+      await publishLoanChange('created', result);
+      return result;
     },
 
     async returnLoan(id) {
@@ -168,7 +179,9 @@ export function createLoanService(
         await bookDao.adjustAvailableCopies(existing.bookId, 1, { session });
         return updated;
       });
-      return present(loan);
+      const result = present(loan);
+      await publishLoanChange('returned', result);
+      return result;
     },
 
     async extend(id) {
@@ -194,7 +207,9 @@ export function createLoanService(
       if (!updated) {
         throw HttpError.conflict('Видачу одночасно змінили, повторіть спробу');
       }
-      return present(updated);
+      const result = present(updated);
+      await publishLoanChange('extended', result);
+      return result;
     },
   };
 }

@@ -5,7 +5,6 @@ export const readersApi = {
   listAll: (query) => fetchAll('/readers', query),
   get: (id) => api.get(`/readers/${id}`),
   create: (data) => api.post('/readers', data),
+  replace: (id, data) => api.put(`/readers/${id}`, data),
   remove: (id) => api.delete(`/readers/${id}`),
-  loans: (id, query) => api.get(`/readers/${id}/loans`, query),
-  recommendations: (id, query) => api.get(`/readers/${id}/recommendations`, query),
 };

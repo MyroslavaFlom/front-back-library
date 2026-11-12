@@ -17,8 +17,9 @@ function limiter({ limit, message, ...options }) {
 // Загальний ліміт для всього /api (SSE — одне довге з'єднання, тож у ліміт майже не впливає).
 export const apiLimiter = limiter({ limit: 500 });
 
-// Суворий ліміт на вхід: 5 спроб за 15 хвилин з однієї IP-адреси.
+// Суворий ліміт на вхід: 5 невдалих спроб за 15 хвилин з однієї IP-адреси (успішні входи не рахуються).
 export const loginLimiter = limiter({
   limit: 5,
+  skipSuccessfulRequests: true,
   message: 'Забагато спроб входу. Спробуйте через 15 хвилин',
 });

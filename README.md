@@ -77,7 +77,7 @@ routes → controllers → services → dao → MongoDB
 | Метод | Шлях | Опис |
 |---|---|---|
 | GET | `/auth/csrf` | `{ csrfToken }` для поточної сесії |
-| POST | `/auth/login` | `{ username, password }` → `{ user, csrfToken }`; 5 спроб / 15 хв |
+| POST | `/auth/login` | `{ username, password }` → `{ user, csrfToken }`; 5 невдалих спроб / 15 хв |
 | POST | `/auth/logout` | Завершити сесію (204) |
 | GET | `/auth/me` | Поточний користувач або 401 |
 | GET | `/events` | Server-Sent Events: `book.created`, `book.updated`, `book.deleted`, `loan.changed` (лише admin) |

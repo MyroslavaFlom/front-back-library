@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 // Завантажує дані асинхронною функцією; перезапускається при зміні deps і через reload().
+// reload() оновлює дані «тихо»: попередні дані лишаються на екрані до відповіді.
 export function useAsync(fn, deps = []) {
   const [state, setState] = useState({ data: null, error: null, loading: true });
   const [version, setVersion] = useState(0);

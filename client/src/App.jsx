@@ -1,44 +1,37 @@
-import { Navigate, NavLink, Route, Routes } from 'react-router-dom';
-import { Container, Nav, Navbar } from 'react-bootstrap';
-import BooksPage from './pages/BooksPage.jsx';
-import ReadersPage from './pages/ReadersPage.jsx';
-import LoansPage from './pages/LoansPage.jsx';
-import StatsPage from './pages/StatsPage.jsx';
+import { Navigate, Route, Routes } from 'react-router-dom';
+import { Container } from 'react-bootstrap';
+import AppNavbar from './components/AppNavbar.jsx';
+import ProtectedRoute from './components/ProtectedRoute.jsx';
+import CatalogPage from './pages/CatalogPage.jsx';
+import BookDetailsPage from './pages/BookDetailsPage.jsx';
+import LoginPage from './pages/LoginPage.jsx';
 import NotFoundPage from './pages/NotFoundPage.jsx';
-
-const links = [
-  ['/books', 'Книжки'],
-  ['/readers', 'Читачі'],
-  ['/loans', 'Видачі'],
-  ['/stats', 'Статистика'],
-];
+import AdminLayout from './pages/admin/AdminLayout.jsx';
+import AdminBooksPage from './pages/admin/AdminBooksPage.jsx';
+import AdminReadersPage from './pages/admin/AdminReadersPage.jsx';
+import AdminLoansPage from './pages/admin/AdminLoansPage.jsx';
+import AdminStatsPage from './pages/admin/AdminStatsPage.jsx';
 
 export default function App() {
   return (
     <>
-      <Navbar bg="dark" data-bs-theme="dark" expand="sm" className="mb-4">
-        <Container>
-          <Navbar.Brand as={NavLink} to="/">Бібліотека</Navbar.Brand>
-          <Navbar.Toggle aria-controls="main-nav" />
-          <Navbar.Collapse id="main-nav">
-            <Nav>
-              {links.map(([to, label]) => (
-                <Nav.Link key={to} as={NavLink} to={to}>
-                  {label}
-                </Nav.Link>
-              ))}
-            </Nav>
-          </Navbar.Collapse>
-        </Container>
-      </Navbar>
-
+      <AppNavbar />
       <Container className="pb-5">
         <Routes>
-          <Route path="/" element={<Navigate to="/books" replace />} />
-          <Route path="/books" element={<BooksPage />} />
-          <Route path="/readers" element={<ReadersPage />} />
-          <Route path="/loans" element={<LoansPage />} />
-          <Route path="/stats" element={<StatsPage />} />
+          <Route path="/" element={<CatalogPage />} />
+          <Route path="/books/:id" element={<BookDetailsPage />} />
+          <Route path="/login" element={<LoginPage />} />
+
+          <Route path="/admin" element={<ProtectedRoute roles={['admin']} />}>
+            <Route element={<AdminLayout />}>
+              <Route index element={<Navigate to="books" replace />} />
+              <Route path="books" element={<AdminBooksPage />} />
+              <Route path="readers" element={<AdminReadersPage />} />
+              <Route path="loans" element={<AdminLoansPage />} />
+              <Route path="stats" element={<AdminStatsPage />} />
+            </Route>
+          </Route>
+
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
       </Container>

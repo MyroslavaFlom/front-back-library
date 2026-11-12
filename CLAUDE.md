@@ -61,7 +61,7 @@ routes → controllers → services → dao → MongoDB
 - `/api/auth`: `GET /csrf` → `{ csrfToken }`; `POST /login` → регенерує сесію, `{ user, csrfToken }` (старий токен недійсний); `POST /logout` → 204; `GET /me` → `{ user }` або 401.
 - Доступ: GET `/books` — публічні; зміни книжок, `/readers`, `/loans`, `/stats` — `requireAdmin` у маршрутах. Без входу → 401, без ролі → 403. Новий захищений маршрут — додавати `requireAdmin`/`requireRole(...)` у файлі маршрутів.
 - Порядок на `/api` (`app.js`): `apiLimiter` → `rejectMongoOperators` → `csrfProtection` → маршрути. Тому змінювальний запит без `X-CSRF-Token` отримує 403 ще до перевірки входу.
-- Усі POST/PUT/PATCH/DELETE вимагають заголовок `X-CSRF-Token`, рівний токену сесії. Login обмежено 5 спробами / 15 хв з IP (`loginLimiter`).
+- Усі POST/PUT/PATCH/DELETE вимагають заголовок `X-CSRF-Token`, рівний токену сесії. Login обмежено 5 невдалими спробами / 15 хв з IP (`loginLimiter`, `skipSuccessfulRequests`).
 - helmet, JSON-тіло ≤ 100kb, CORS лише для `CLIENT_ORIGIN` з `credentials`.
 
 ### Події (SSE)
@@ -73,20 +73,23 @@ routes → controllers → services → dao → MongoDB
 ## Клієнт: архітектура
 
 ```
-pages → hooks / components → src/api → fetch → /api
+pages → hooks / context / components → src/api → fetch / EventSource → /api
 ```
 
 | Каталог | Відповідальність |
 |---|---|
-| `client/src/api/` | Єдиний шар доступу до REST API. `client.js` — обгортка над `fetch` (`request`, `api.get/post/put/patch/delete`, `fetchAll` для всіх сторінок списку): JSON, `credentials: "include"`, помилка API → `ApiError { status, message, details }`. По модулю на ресурс (`books.js`, `readers.js`, `loans.js`, `stats.js`), реекспорт з `index.js`. |
-| `client/src/pages/` | Сторінки маршрутів (`/books`, `/readers`, `/loans`, `/stats`); маршрути — в `App.jsx`. |
-| `client/src/components/` | Перевикористовувані компоненти (`ErrorAlert`, `Notice`, `Pager`, `Loading`). |
-| `client/src/hooks/` | `useAsync(fn, deps)` → `{ data, error, loading, reload }`. |
-| `client/src/format.js` | Форматування дат/грошей, `toBody()` — значення форми → тіло запиту. |
+| `client/src/api/` | Єдиний шар доступу до API. `client.js` — обгортка над `fetch` (`request`, `api.get/post/put/patch/delete`, `fetchAll`): JSON, `credentials: "include"`, помилка → `ApiError { status, message, details }`; **CSRF-токен** автоматично додається в POST/PUT/PATCH/DELETE (`X-CSRF-Token`, береться з `/auth/csrf` або з відповіді login; при 403 оновлюється й запит повторюється один раз); **401** → обробник з `setUnauthorizedHandler` (редірект на `/login`), крім запитів з `redirectOnUnauthorized: false` (`me`, `login`). `auth.js`, `events.js` (`subscribeToEvents` — EventSource), по модулю на ресурс; реекспорт з `index.js`. |
+| `client/src/context/` | `AuthContext` (`user`, `isAdmin`, `loading`, `me`, `login`, `logout`), `ToastContext` (`showToast(text, { variant, title })`). |
+| `client/src/hooks/` | `useAsync(fn, deps)` → `{ data, error, loading, reload }`; `useApiForm(initial)` — стан форми й розкладання `details` помилки API по полях; `useLiveEvents(handlers)` — підписка на SSE, перепідключення при зміні користувача. |
+| `client/src/components/` | `AppNavbar`, `ProtectedRoute` (ролі), `Field` (поле з помилкою від API), `ConfirmModal`, `ErrorAlert`, `Pager`, `Loading`. |
+| `client/src/pages/` | Публічні: `/` каталог (`CatalogPage`, фільтри в query-рядку), `/books/:id`, `/login`. Адмінка `pages/admin/` під `/admin/*` (`ProtectedRoute` для `admin`): `books`, `readers`, `loans`, `stats`. Маршрути — в `App.jsx`. |
 
 ### Правила клієнта
 
-- **Компоненти й сторінки не викликають `fetch` напряму** — лише функції з `src/api/`. Новий ендпоінт → нова функція у відповідному модулі `src/api/`.
-- Запити йдуть на відносний `/api` (у dev — через проксі Vite, у production — той самий origin), тож базовий URL не хардкодимо.
-- Помилки API показуємо на сторінці через `ErrorAlert` (повідомлення + `details`).
+- **Компоненти, сторінки й хуки не викликають `fetch` чи `EventSource` напряму** — лише функції з `src/api/`. Новий ендпоінт → нова функція у відповідному модулі.
+- CSRF і 401 обробляє шар `api`; у компонентах про них не думаємо.
+- Запити йдуть на відносний `/api` (у dev — через проксі Vite, у production — той самий origin), базовий URL не хардкодимо.
+- Форми: `useApiForm` + `Field` — помилки валідації з API (`details[].field`) показуються біля полів, решта — `ErrorAlert` над формою. Успіх дії — `showToast`.
+- Живі оновлення — `useLiveEvents({ 'book.created': ... })`: на подію перезавантажуємо дані (`reload()`), а не латаємо стан вручну.
+- Каталог публічний, тому жанри для фільтра збираються з усіх книжок (`/stats/genres` лише для admin).
 - UI будуємо з компонентів `react-bootstrap` і утилітарних класів Bootstrap; власний CSS — лише за потреби.

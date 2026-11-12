@@ -1,40 +1,54 @@
-# Library Service
+# Бібліотека
 
-«Бібліотека»: облік книжок, читачів і видач, аналітика та рекомендації.
+Навчальний проєкт «Товстий клієнт»: облік книжок, читачів і видач, аналітика, рекомендації та оновлення в реальному часі.
 
-- `server/` — RESTful-сервіс: **Node.js + Express 5 + MongoDB** (офіційний драйвер `mongodb`, без Mongoose), ES-модулі.
-- `client/` — «товстий клієнт»: **React + Vite**, `react-router-dom`, Bootstrap 5 (`react-bootstrap`).
+- **`server/`** — RESTful-сервіс: Node.js, Express 5, MongoDB (офіційний драйвер `mongodb`, без Mongoose), ES-модулі.
+- **`client/`** — односторінковий React-застосунок (Vite, JavaScript), `react-router-dom`, Bootstrap 5 + `react-bootstrap`.
+- **`postman/`** — колекція для тестування API.
 
-Корінь — npm workspaces (`server`, `client`); усі команди запускаються з кореня.
+Корінь репозиторію — npm workspaces (`server`, `client`): усі команди запускаються з кореня.
 
-## Архітектура сервера
-
-Кожен запит проходить шари строго зверху вниз:
+## Архітектура
 
 ```
-routes → controllers → services → dao → MongoDB
+React-клієнт  ⇄  REST API (Express)  →  сервіси  →  DAO  →  MongoDB
+  (браузер)      JSON + cookie-сесія       ↓
+       ⇠────────── SSE /api/events ←── шина подій
 ```
+
+**Клієнт** (`client/src/`) працює з сервером лише через шар `api/`: обгортка над `fetch` додає cookie сесії
+(`credentials: "include"`), CSRF-токен до змінювальних запитів, перетворює помилки API на `ApiError`, а на 401
+переводить на сторінку входу. Над ним — контексти (`AuthContext`, `ToastContext`), хуки (`useAsync`, `useApiForm`,
+`useLiveEvents`) і сторінки: публічний каталог (`/`, `/books/:id`), вхід (`/login`) і адмін-панель (`/admin/*`).
+
+**Сервер** (`server/src/`) — шари строго зверху вниз:
 
 | Шар | Каталог | Що робить |
 |---|---|---|
-| routes | `server/src/routes/` | Зіставляє URL і HTTP-метод із методом контролера. Без логіки. |
-| controllers | `server/src/controllers/` | Читає `req` (params, query, body), викликає сервіс, формує HTTP-відповідь. |
-| services | `server/src/services/` | Бізнес-логіка й правила предметної області (ліміти, штрафи, рекомендації). Не знає про HTTP і про MongoDB. |
-| dao | `server/src/dao/` | Єдине місце роботи з колекціями MongoDB: запити, aggregation pipeline, конвертація `ObjectId`. |
+| routes | `routes/` | Зіставляє URL і HTTP-метод із контролером, підключає перевірку доступу (`requireAdmin`). Без логіки. |
+| controllers | `controllers/` | Читає `req` (params, query, body, сесію), викликає сервіс, формує HTTP-відповідь. |
+| services | `services/` | Бізнес-логіка й правила предметної області, валідація, публікація подій. Не знає про HTTP і про MongoDB. |
+| dao | `dao/` | Єдине місце роботи з колекціями MongoDB: запити, aggregation pipeline, конвертація `ObjectId`. |
 
 **DAO (Data Access Object)** — об'єкт, який інкапсулює доступ до сховища даних. Сервіс викликає
-`bookDao.findById(id)` чи `loanDao.popularBooks(...)` і не знає, як саме це зберігається й шукається.
+`bookDao.findById(id)` чи `loanDao.popularBooks(...)` і не знає, як саме дані зберігаються й шукаються.
 Тому бізнес-логіку можна читати й змінювати окремо від запитів до БД, а сховище — замінити, не чіпаючи сервіси.
 
-Допоміжні каталоги: `server/src/config/` (`.env`, підключення до MongoDB), `server/src/validators/` (валідація вхідних даних),
-`server/src/middlewares/` (обробка помилок, 404), `server/src/utils/` (`HttpError`), `server/src/scripts/` (seed).
+Допоміжні каталоги: `config/` (`.env`, підключення до MongoDB, сесії), `middlewares/` (доступ, CSRF, ліміти,
+захист від NoSQL-ін'єкцій, обробка помилок), `validators/`, `events/` (шина подій), `utils/`, `scripts/` (seed).
 
 Операції, що змінюють кілька документів (видача, повернення, видалення, зміна кількості примірників),
 виконуються в транзакціях MongoDB — потрібен replica set (MongoDB Atlas підходить, зокрема безкоштовний кластер).
 
 ## Запуск
 
-1. Створіть `server/.env` за зразком `server/.env.example`:
+Потрібні Node.js 20+ і MongoDB з replica set (наприклад, MongoDB Atlas).
+
+1. **Залежності** (для сервера й клієнта одразу):
+   ```
+   npm install
+   ```
+2. **Конфіг сервера** — створіть `server/.env` за зразком `server/.env.example`:
    ```
    PORT=3000
    MONGO_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
@@ -43,57 +57,105 @@ routes → controllers → services → dao → MongoDB
    ADMIN_USERNAME=admin
    ADMIN_PASSWORD=<пароль від 8 символів>
    ```
-2. Встановіть залежності (для обох пакетів одразу):
-   ```
-   npm install
-   ```
-3. Заповніть базу демо-даними (**очищує** колекції books, readers, loans):
+   `SESSION_SECRET` можна згенерувати так:
+   `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`.
+   Необов'язкові змінні: `CLIENT_ORIGIN` (origin клієнта для CORS, за замовчуванням `http://localhost:5173`),
+   `COOKIE_SECURE`, `TRUST_PROXY` — див. коментарі в `.env.example`.
+3. **Демо-дані й адміністратор** (⚠️ **очищує** колекції books, readers, loans):
    ```
    npm run seed
    ```
-   15 книжок різних жанрів, 5 читачів, 11 видач (з них 4 повернені й 3 прострочені),
-   а також адміністратор з `ADMIN_USERNAME` / `ADMIN_PASSWORD`.
-4. Розробка — сервер і клієнт разом:
+   15 книжок різних жанрів, 5 читачів, 11 видач (4 повернені, 3 прострочені) і адміністратор.
+4. **Розробка** — сервер і клієнт разом:
    ```
    npm run dev
    ```
-   Клієнт: http://localhost:5173 (Vite проксує `/api` на http://localhost:3000). API: `GET http://localhost:3000/api/health`.
-5. Продакшн — зібрати клієнт і запустити сервер, який віддає `client/dist` на http://localhost:3000:
+   Клієнт: http://localhost:5173 (Vite проксує `/api` на сервер). API: http://localhost:3000/api/health.
+5. **Продакшн** — зібрати клієнт і запустити сервер, який віддає його на http://localhost:3000:
    ```
    npm run build
    npm start
    ```
+   `npm start` вмикає `NODE_ENV=production`, тож cookie сесії отримує прапорець `Secure` і передається лише
+   через HTTPS. Щоб увійти локально по `http://localhost:3000`, додайте в `server/.env` рядок `COOKIE_SECURE=false`.
+
+### Логін адміністратора
+
+Адміністратора створює (або оновлює йому пароль) `npm run seed` з `ADMIN_USERNAME` і `ADMIN_PASSWORD` із
+`server/.env`. Тобто логін і пароль — ті, що ви вписали в `.env`. Щоб змінити пароль, змініть `ADMIN_PASSWORD`
+і знову виконайте seed (зауважте: він перезаливає демо-дані). Колекцію `users` seed не очищує.
+
+## Як це працює
+
+### Доступ і сесії
+
+- Користувачі зберігаються в колекції `users`: `username`, `passwordHash` (bcrypt), `role` (`admin` або `user`).
+  Хеш пароля ніколи не повертається з API.
+- Після входу (`POST /api/auth/login`) сервер **створює нову сесію** (захист від session fixation) і кладе в неї
+  користувача. Сесії зберігаються в MongoDB (колекція `sessions`, express-session + connect-mongo).
+- Браузер отримує cookie `library.sid`: `httpOnly` (недоступний з JavaScript), `SameSite=Lax`, `Secure` у production,
+  термін — **2 години від останнього запиту**.
+- Публічні: перегляд книжок (`GET /books`, `/books/genres`, `/books/:id`), `/health`, `/auth/*`, `/events`.
+  Зміни книжок, читачі, видачі й статистика — лише для `admin`. Без входу → **401**, без прав → **403**.
+
+### Оновлення в реальному часі (SSE)
+
+`GET /api/events` — потік Server-Sent Events. Після змін сервіси публікують події в шину, а сервер розсилає їх
+усім підключеним клієнтам:
+
+| Подія | Коли | Хто отримує |
+|---|---|---|
+| `book.created` | додано книжку | усі |
+| `book.updated` | змінено книжку або кількість вільних примірників (видача/повернення) | усі |
+| `book.deleted` | видалено книжку | усі |
+| `loan.changed` | видача, повернення, продовження | лише admin |
+
+Кожні 25 с сервер надсилає heartbeat, щоб проксі не закривали з'єднання; браузер перепідключається сам.
+У клієнті хук `useLiveEvents` перезавантажує дані на подію: нова книжка з'являється в каталозі без
+перезавантаження сторінки, з повідомленням «Додано нову книжку: …».
+
+### Заходи безпеки
+
+- **Паролі** — bcrypt (12 раундів); при неіснуючому логіні все одно рахується хеш, щоб час відповіді не видавав, чи існує користувач.
+- **CSRF** — токен зберігається в сесії; `GET /api/auth/csrf` його повертає (login видає новий). Кожен
+  POST/PUT/PATCH/DELETE має містити заголовок `X-CSRF-Token`, інакше — 403. Додатково захищає `SameSite=Lax`.
+- **Перебір паролів** — не більше **5 невдалих спроб входу за 15 хв** з однієї IP-адреси (429); загальний ліміт на `/api` — 500 запитів за 15 хв.
+- **NoSQL-ін'єкції** — запит із ключами, що містять `$` або `.` (у body, query чи params), відхиляється з 400.
+  Крім того, усі вхідні дані проходять валідацію за схемами з відкиданням невідомих полів.
+- **HTTP-заголовки** — helmet (CSP, `X-Content-Type-Options`, `Strict-Transport-Security` тощо).
+- **Розмір тіла** — JSON не більше 100 KB.
+- **CORS** — дозволено лише origin клієнта (`CLIENT_ORIGIN`) з передаванням cookie.
+- **Секрети** — лише в `server/.env`, який не потрапляє в git.
 
 ## Ендпоінти
 
-Усі маршрути — під префіксом `/api`.
+Усі маршрути — під префіксом `/api`. Формат даних — JSON.
 
-### Автентифікація й доступ
-
-Сесія в cookie `library.sid` (httpOnly, 2 год). Перегляд книжок — публічний; зміни книжок, читачі, видачі
-й статистика — лише для `admin` (без входу — 401, без прав — 403).
-Кожен POST/PUT/PATCH/DELETE має містити заголовок `X-CSRF-Token` з токеном від `GET /auth/csrf` (або з відповіді login).
+### Автентифікація й події
 
 | Метод | Шлях | Опис |
 |---|---|---|
 | GET | `/auth/csrf` | `{ csrfToken }` для поточної сесії |
-| POST | `/auth/login` | `{ username, password }` → `{ user, csrfToken }`; 5 невдалих спроб / 15 хв |
+| POST | `/auth/login` | `{ username, password }` → `{ user, csrfToken }` |
 | POST | `/auth/logout` | Завершити сесію (204) |
-| GET | `/auth/me` | Поточний користувач або 401 |
-| GET | `/events` | Server-Sent Events: `book.created`, `book.updated`, `book.deleted`, `loan.changed` (лише admin) |
+| GET | `/auth/me` | `{ user }` або 401 |
+| GET | `/events` | Server-Sent Events (див. вище) |
 
 ### Книжки
+
+GET — публічні, решта — лише admin.
 
 | Метод | Шлях | Опис |
 |---|---|---|
 | GET | `/books` | Список: `page`, `limit`, `sort` (`-rating` тощо), `search`, `genre`, `author`, `yearFrom`, `yearTo`, `available` |
 | POST | `/books` | Створити (`title`, `author`, `isbn`, `totalCopies` — обов'язкові) |
+| GET | `/books/genres` | Жанри з кількістю книжок: `[{ genre, booksCount }]` (за алфавітом) |
 | GET | `/books/:id` | Отримати за id |
 | PUT | `/books/:id` | Повна заміна |
 | PATCH | `/books/:id` | Часткове оновлення |
 | DELETE | `/books/:id` | Видалити (заборонено, якщо є активні видачі) |
 
-### Читачі
+### Читачі (лише admin)
 
 | Метод | Шлях | Опис |
 |---|---|---|
@@ -106,7 +168,7 @@ routes → controllers → services → dao → MongoDB
 | GET | `/readers/:id/loans` | Історія видач читача (`status`, пагінація) |
 | GET | `/readers/:id/recommendations` | Рекомендації (`limit` 1–50) |
 
-### Видачі
+### Видачі (лише admin)
 
 | Метод | Шлях | Опис |
 |---|---|---|
@@ -116,7 +178,7 @@ routes → controllers → services → dao → MongoDB
 | POST | `/loans/:id/return` | Повернути книжку |
 | POST | `/loans/:id/extend` | Продовжити на 7 днів |
 
-### Статистика
+### Статистика (лише admin)
 
 | Метод | Шлях | Опис |
 |---|---|---|
@@ -148,13 +210,25 @@ routes → controllers → services → dao → MongoDB
   Рекомендуються книжки цих жанрів або авторів, які читач ще не брав і які є в наявності, відсортовані за рейтингом, потім за популярністю.
   Якщо історії немає — найпопулярніші доступні книжки.
 
-## Postman
+## Тестування в Postman
 
 Колекція: `postman/Library-API.postman_collection.json` (формат v2.1).
 
-1. Postman → **Import** → виберіть файл колекції.
-2. Змінна колекції `baseUrl` за замовчуванням — `http://localhost:3000/api` (змінюється на вкладці **Variables**).
-3. Запити згруповано в папки **Books**, **Readers**, **Loans**, **Stats**. POST-запити зберігають id створених записів
-   у змінні `bookId`, `readerId`, `loanId`, тож наступні запити (GET/PUT/PATCH/DELETE, видача) працюють одразу.
-4. Негативні приклади позначено `[Negative]`: невалідний id (404), дублікат ISBN (409), видача без вільних примірників (409).
-5. Усю колекцію можна прогнати через **Run collection** — кожен запит перевіряє очікуваний HTTP-статус.
+1. Запустіть сервер (`npm run dev`) і виконайте `npm run seed`, якщо база порожня.
+2. Postman → **Import** → виберіть файл колекції.
+3. Відкрийте колекцію → вкладка **Variables** і задайте `adminUsername` та `adminPassword` (значення з `server/.env`).
+   Пароль вписуйте в **Current value** — тоді він не потрапить у файл при експорті колекції.
+   `baseUrl` за замовчуванням — `http://localhost:3000/api`.
+4. Виконайте **Auth → Login**. Cookie сесії Postman збереже сам.
+5. **CSRF-токен підставляється автоматично**: pre-request script колекції для POST/PUT/PATCH/DELETE отримує токен
+   через `GET /auth/csrf`, зберігає його в змінній `csrfToken` і додає заголовок `X-CSRF-Token`.
+   Login зберігає новий токен, Logout його скидає.
+6. Публічні GET (`/health`, `/books`, `/books/genres`, `/books/:id`) працюють і без входу.
+7. Папки йдуть у порядку прогону: **Auth → Books → Readers → Loans → Stats → Logout**, тож усю колекцію можна запустити
+   через **Run collection** — кожен запит перевіряє очікуваний HTTP-статус. POST-запити зберігають id створених
+   записів у змінні `bookId`, `readerId`, `loanId`.
+8. Негативні приклади позначено `[Negative]`: без входу (401), невірний пароль (401), невалідний id (404),
+   дублікат ISBN (409), видача без вільних примірників (409).
+
+⚠️ Невдалих входів дозволено лише 5 за 15 хвилин: якщо часто запускати колекцію (у ній є один навмисно невдалий вхід),
+можна отримати 429 — зачекайте або перезапустіть сервер (лічильник зберігається в пам'яті).

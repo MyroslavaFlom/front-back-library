@@ -2,6 +2,7 @@ import { api, fetchAll } from './client.js';
 
 export const booksApi = {
   list: (query) => api.get('/books', query),
+  genres: () => api.get('/books/genres'),
   listAll: (query) => fetchAll('/books', query),
   get: (id) => api.get(`/books/${id}`),
   create: (data) => api.post('/books', data),

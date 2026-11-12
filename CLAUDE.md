@@ -59,7 +59,7 @@ routes → controllers → services → dao → MongoDB
 - Користувачі — колекція `users` через `UserDao` (`username`, `passwordHash` bcrypt, `role`: `admin` | `user`). `passwordHash` ніколи не повертається з API: `AuthService` віддає лише `{ id, username, role }`.
 - Сесія — express-session + connect-mongo (колекція `sessions`), cookie `library.sid`: httpOnly, sameSite `lax`, secure у production, 2 год (rolling). У сесії — `user` і `csrfToken`.
 - `/api/auth`: `GET /csrf` → `{ csrfToken }`; `POST /login` → регенерує сесію, `{ user, csrfToken }` (старий токен недійсний); `POST /logout` → 204; `GET /me` → `{ user }` або 401.
-- Доступ: GET `/books` — публічні; зміни книжок, `/readers`, `/loans`, `/stats` — `requireAdmin` у маршрутах. Без входу → 401, без ролі → 403. Новий захищений маршрут — додавати `requireAdmin`/`requireRole(...)` у файлі маршрутів.
+- Доступ: GET `/books`, `/books/genres`, `/books/:id` — публічні; зміни книжок, `/readers`, `/loans`, `/stats` — `requireAdmin` у маршрутах. Без входу → 401, без ролі → 403. Новий захищений маршрут — додавати `requireAdmin`/`requireRole(...)` у файлі маршрутів.
 - Порядок на `/api` (`app.js`): `apiLimiter` → `rejectMongoOperators` → `csrfProtection` → маршрути. Тому змінювальний запит без `X-CSRF-Token` отримує 403 ще до перевірки входу.
 - Усі POST/PUT/PATCH/DELETE вимагають заголовок `X-CSRF-Token`, рівний токену сесії. Login обмежено 5 невдалими спробами / 15 хв з IP (`loginLimiter`, `skipSuccessfulRequests`).
 - helmet, JSON-тіло ≤ 100kb, CORS лише для `CLIENT_ORIGIN` з `credentials`.
@@ -91,5 +91,5 @@ pages → hooks / context / components → src/api → fetch / EventSource → /
 - Запити йдуть на відносний `/api` (у dev — через проксі Vite, у production — той самий origin), базовий URL не хардкодимо.
 - Форми: `useApiForm` + `Field` — помилки валідації з API (`details[].field`) показуються біля полів, решта — `ErrorAlert` над формою. Успіх дії — `showToast`.
 - Живі оновлення — `useLiveEvents({ 'book.created': ... })`: на подію перезавантажуємо дані (`reload()`), а не латаємо стан вручну.
-- Каталог публічний, тому жанри для фільтра збираються з усіх книжок (`/stats/genres` лише для admin).
+- Жанри для фільтра каталогу — публічний `GET /api/books/genres` (`[{ genre, booksCount }]`); `/stats/genres` — розширена статистика лише для admin.
 - UI будуємо з компонентів `react-bootstrap` і утилітарних класів Bootstrap; власний CSS — лише за потреби.

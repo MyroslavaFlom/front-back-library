@@ -4,6 +4,10 @@ export function createBookController(bookService) {
       res.json(await bookService.getAll(req.query));
     },
 
+    async genres(req, res) {
+      res.json(await bookService.genres());
+    },
+
     async getById(req, res) {
       res.json(await bookService.getById(req.params.id));
     },

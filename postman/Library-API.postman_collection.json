@@ -1,26 +1,203 @@
 {
   "info": {
     "name": "Library API",
-    "description": "REST API сервісу «Бібліотека». Запустіть сервер (npm run dev), за потреби — npm run seed.\n\nPOST-запити зберігають id створених записів у змінні колекції bookId, readerId, loanId, тож решту запитів можна виконувати одразу після створення. Колекцію можна прогнати цілком через Collection Runner.",
+    "description": "REST API сервісу «Бібліотека». Запустіть сервер (`npm run dev` з кореня), за потреби — `npm run seed`.\n\n**Вхід.** Задайте змінні колекції `adminUsername` / `adminPassword` (вкладка Variables, поле Current value — так пароль не потрапить у файл колекції при експорті). Сесія зберігається в cookie `library.sid`, який Postman запам'ятовує сам.\n\n**CSRF.** Pre-request script колекції для POST/PUT/PATCH/DELETE сам отримує токен (`GET /auth/csrf`), зберігає його в змінній `csrfToken` і додає заголовок `X-CSRF-Token`. Login видає новий токен (сесія регенерується), Logout його скидає.\n\n**Доступ.** Публічні GET (`/health`, `/books`, `/books/genres`, `/books/:id`) працюють без входу. Зміни книжок, читачі, видачі й статистика — лише для admin (без входу 401, без прав 403).\n\n**Порядок.** Папки йдуть у порядку прогону через Run collection: Auth → Books → Readers → Loans → Stats → Logout. POST-запити зберігають id створених записів у змінні bookId, readerId, loanId.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "baseUrl", "value": "http://localhost:3000/api" },
-    { "key": "bookId", "value": "" },
-    { "key": "readerId", "value": "" },
-    { "key": "loanId", "value": "" },
-    { "key": "isbn", "value": "" },
-    { "key": "readerEmail", "value": "" },
-    { "key": "emptyBookId", "value": "" }
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000/api"
+    },
+    {
+      "key": "adminUsername",
+      "value": "admin"
+    },
+    {
+      "key": "adminPassword",
+      "value": "",
+      "description": "Пароль адміна з server/.env (ADMIN_PASSWORD). Задавайте в Current value."
+    },
+    {
+      "key": "csrfToken",
+      "value": "",
+      "description": "Заповнюється автоматично pre-request script колекції."
+    },
+    {
+      "key": "bookId",
+      "value": ""
+    },
+    {
+      "key": "readerId",
+      "value": ""
+    },
+    {
+      "key": "loanId",
+      "value": ""
+    },
+    {
+      "key": "isbn",
+      "value": ""
+    },
+    {
+      "key": "readerEmail",
+      "value": ""
+    },
+    {
+      "key": "emptyBookId",
+      "value": ""
+    }
   ],
   "item": [
     {
       "name": "Health check",
-      "request": { "method": "GET", "url": "{{baseUrl}}/health" },
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/health"
+      },
       "event": [
-        { "listen": "test", "script": { "type": "text/javascript", "exec": [
-          "pm.test('200 OK', () => pm.response.to.have.status(200));"
-        ] } }
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "description": "Вхід адміністратора. Виконайте Login перед запитами з папок Readers, Loans, Stats і змінами книжок.",
+      "item": [
+        {
+          "name": "Get CSRF token",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/auth/csrf"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('csrfToken', pm.response.json().csrfToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Negative] Readers without login → 401",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/readers",
+            "description": "Запускайте до Login (або після Logout)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Negative] Wrong password → 401",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/login",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{adminUsername}}\",\n  \"password\": \"wrong-password\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Невдалі спроби входу обмежено: 5 за 15 хвилин з однієї IP-адреси."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/login",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{adminUsername}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('admin role', () => pm.expect(pm.response.json().user.role).to.eql('admin'));",
+                  "// Після входу сесія нова — зберігаємо новий CSRF-токен.",
+                  "if (pm.response.code === 200) pm.collectionVariables.set('csrfToken', pm.response.json().csrfToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Me",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/auth/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('has user', () => pm.expect(pm.response.json().user.username).to.eql(pm.collectionVariables.get('adminUsername')));"
+                ]
+              }
+            }
+          ]
+        }
       ]
     },
     {
@@ -32,137 +209,300 @@
             "method": "GET",
             "url": {
               "raw": "{{baseUrl}}/books?page=1&limit=10&sort=-rating&available=true",
-              "host": ["{{baseUrl}}"],
-              "path": ["books"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "books"
+              ],
               "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "10" },
-                { "key": "sort", "value": "-rating", "description": "title | author | year | rating | pages | createdAt; префікс - — за спаданням" },
-                { "key": "available", "value": "true", "description": "true | false" },
-                { "key": "search", "value": "Азімов", "disabled": true, "description": "Повнотекстовий пошук за назвою й автором" },
-                { "key": "genre", "value": "фантастика", "disabled": true },
-                { "key": "author", "value": "Крісті", "disabled": true },
-                { "key": "yearFrom", "value": "1900", "disabled": true },
-                { "key": "yearTo", "value": "2000", "disabled": true }
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "sort",
+                  "value": "-rating",
+                  "description": "title | author | year | rating | pages | createdAt; префікс - — за спаданням"
+                },
+                {
+                  "key": "available",
+                  "value": "true",
+                  "description": "true | false"
+                },
+                {
+                  "key": "search",
+                  "value": "Азімов",
+                  "disabled": true,
+                  "description": "Повнотекстовий пошук за назвою й автором"
+                },
+                {
+                  "key": "genre",
+                  "value": "фантастика",
+                  "disabled": true
+                },
+                {
+                  "key": "author",
+                  "value": "Крісті",
+                  "disabled": true
+                },
+                {
+                  "key": "yearFrom",
+                  "value": "1900",
+                  "disabled": true
+                },
+                {
+                  "key": "yearTo",
+                  "value": "2000",
+                  "disabled": true
+                }
               ]
             }
           },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List genres",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/books/genres",
+            "description": "Публічний: жанри з кількістю книжок (для фільтра каталогу)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('array of { genre, booksCount }', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.be.an('array');",
+                  "  if (body.length) pm.expect(body[0]).to.have.keys('genre', 'booksCount');",
+                  "});"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Create book",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/books",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"title\": \"Кайдашева сім'я\",\n  \"author\": \"Іван Нечуй-Левицький\",\n  \"isbn\": \"{{isbn}}\",\n  \"genre\": \"роман\",\n  \"year\": 1879,\n  \"pages\": 224,\n  \"totalCopies\": 2,\n  \"rating\": 4.6\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           },
           "event": [
-            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
-              "// Унікальний валідний ISBN-13 для кожного запуску (isbn має бути унікальним).",
-              "const base = '979' + String(Math.floor(Math.random() * 1e9)).padStart(9, '0');",
-              "const sum = [...base].reduce((acc, ch, i) => acc + Number(ch) * (i % 2 ? 3 : 1), 0);",
-              "pm.collectionVariables.set('isbn', base + ((10 - (sum % 10)) % 10));"
-            ] } },
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('201 Created', () => pm.response.to.have.status(201));",
-              "if (pm.response.code === 201) pm.collectionVariables.set('bookId', pm.response.json().id);"
-            ] } }
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Унікальний валідний ISBN-13 для кожного запуску (isbn має бути унікальним).",
+                  "const base = '979' + String(Math.floor(Math.random() * 1e9)).padStart(9, '0');",
+                  "const sum = [...base].reduce((acc, ch, i) => acc + Number(ch) * (i % 2 ? 3 : 1), 0);",
+                  "pm.collectionVariables.set('isbn', base + ((10 - (sum % 10)) % 10));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) pm.collectionVariables.set('bookId', pm.response.json().id);"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Get book by id",
-          "request": { "method": "GET", "url": "{{baseUrl}}/books/{{bookId}}" },
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/books/{{bookId}}"
+          },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Replace book (PUT)",
           "request": {
             "method": "PUT",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/books/{{bookId}}",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"title\": \"Кайдашева сім'я (нове видання)\",\n  \"author\": \"Іван Нечуй-Левицький\",\n  \"isbn\": \"{{isbn}}\",\n  \"genre\": \"роман\",\n  \"year\": 1879,\n  \"pages\": 256,\n  \"totalCopies\": 3,\n  \"rating\": 4.7\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Update book (PATCH)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/books/{{bookId}}",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"rating\": 4.8,\n  \"totalCopies\": 4\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "[Negative] Duplicate ISBN → 409",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/books",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"title\": \"Дублікат\",\n  \"author\": \"Хтось\",\n  \"isbn\": \"{{isbn}}\",\n  \"totalCopies\": 1\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "description": "ISBN збігається з книжкою, створеною запитом «Create book»."
           },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('409 Conflict', () => pm.response.to.have.status(409));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "[Negative] Invalid id → 404",
-          "request": { "method": "GET", "url": "{{baseUrl}}/books/not-a-valid-id" },
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/books/not-a-valid-id"
+          },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('404 Not Found', () => pm.response.to.have.status(404));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Delete book",
-          "request": { "method": "DELETE", "url": "{{baseUrl}}/books/{{bookId}}" },
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/books/{{bookId}}"
+          },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('204 No Content', () => pm.response.to.have.status(204));",
-              "// Видалена книжка — «Create loan» створить нову автоматично.",
-              "if (pm.response.code === 204) pm.collectionVariables.unset('bookId');"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+                  "// Видалена книжка — «Create loan» створить нову автоматично.",
+                  "if (pm.response.code === 204) pm.collectionVariables.unset('bookId');"
+                ]
+              }
+            }
           ]
         }
-      ]
+      ],
+      "description": "GET — публічні; POST/PUT/PATCH/DELETE — лише admin."
     },
     {
       "name": "Readers",
@@ -173,88 +513,173 @@
             "method": "GET",
             "url": {
               "raw": "{{baseUrl}}/readers?page=1&limit=10&sort=name",
-              "host": ["{{baseUrl}}"],
-              "path": ["readers"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "readers"
+              ],
               "query": [
-                { "key": "page", "value": "1" },
-                { "key": "limit", "value": "10" },
-                { "key": "sort", "value": "name", "description": "name | email | registeredAt | createdAt" },
-                { "key": "search", "value": "олена", "disabled": true, "description": "Пошук за ім'ям або email" }
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "sort",
+                  "value": "name",
+                  "description": "name | email | registeredAt | createdAt"
+                },
+                {
+                  "key": "search",
+                  "value": "олена",
+                  "disabled": true,
+                  "description": "Пошук за ім'ям або email"
+                }
               ]
             }
           },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Create reader",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/readers",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Марія Петренко\",\n  \"email\": \"{{readerEmail}}\",\n  \"phone\": \"+380501112233\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           },
           "event": [
-            { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
-              "// email має бути унікальним — генеруємо новий для кожного запуску.",
-              "pm.collectionVariables.set('readerEmail', `maria.${Date.now()}@example.com`);"
-            ] } },
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('201 Created', () => pm.response.to.have.status(201));",
-              "if (pm.response.code === 201) pm.collectionVariables.set('readerId', pm.response.json().id);"
-            ] } }
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// email має бути унікальним — генеруємо новий для кожного запуску.",
+                  "pm.collectionVariables.set('readerEmail', `maria.${Date.now()}@example.com`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) pm.collectionVariables.set('readerId', pm.response.json().id);"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Get reader by id",
-          "request": { "method": "GET", "url": "{{baseUrl}}/readers/{{readerId}}" },
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/readers/{{readerId}}"
+          },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Replace reader (PUT)",
           "request": {
             "method": "PUT",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/readers/{{readerId}}",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"name\": \"Марія Петренко-Коваль\",\n  \"email\": \"{{readerEmail}}\",\n  \"phone\": \"+380509998877\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Update reader (PATCH)",
           "request": {
             "method": "PATCH",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/readers/{{readerId}}",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"phone\": \"+380671234567\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             }
           },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
@@ -263,17 +688,34 @@
             "method": "GET",
             "url": {
               "raw": "{{baseUrl}}/readers/{{readerId}}/loans",
-              "host": ["{{baseUrl}}"],
-              "path": ["readers", "{{readerId}}", "loans"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "readers",
+                "{{readerId}}",
+                "loans"
+              ],
               "query": [
-                { "key": "status", "value": "active", "disabled": true, "description": "active | overdue | returned" }
+                {
+                  "key": "status",
+                  "value": "active",
+                  "disabled": true,
+                  "description": "active | overdue | returned"
+                }
               ]
             }
           },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
@@ -282,61 +724,95 @@
             "method": "GET",
             "url": {
               "raw": "{{baseUrl}}/readers/{{readerId}}/recommendations?limit=5",
-              "host": ["{{baseUrl}}"],
-              "path": ["readers", "{{readerId}}", "recommendations"],
-              "query": [{ "key": "limit", "value": "5", "description": "1–50" }]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "readers",
+                "{{readerId}}",
+                "recommendations"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "5",
+                  "description": "1–50"
+                }
+              ]
             }
           },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Delete reader",
-          "request": { "method": "DELETE", "url": "{{baseUrl}}/readers/{{readerId}}" },
+          "request": {
+            "method": "DELETE",
+            "url": "{{baseUrl}}/readers/{{readerId}}"
+          },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('204 No Content', () => pm.response.to.have.status(204));",
-              "// Видалений читач — «Create loan» створить нового автоматично.",
-              "if (pm.response.code === 204) pm.collectionVariables.unset('readerId');"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+                  "// Видалений читач — «Create loan» створить нового автоматично.",
+                  "if (pm.response.code === 204) pm.collectionVariables.unset('readerId');"
+                ]
+              }
+            }
           ]
         }
-      ]
+      ],
+      "description": "Лише admin: спершу виконайте Auth → Login."
     },
     {
       "name": "Loans",
       "event": [
-        { "listen": "prerequest", "script": { "type": "text/javascript", "exec": [
-          "// Якщо bookId/readerId ще не задані (або видалені в Books/Readers) — створюємо їх,",
-          "// щоб видачі працювали і при ручному запуску, і в Collection Runner.",
-          "const baseUrl = pm.collectionVariables.get('baseUrl');",
-          "const post = (path, body, varName) => pm.sendRequest({",
-          "  url: baseUrl + path,",
-          "  method: 'POST',",
-          "  header: [{ key: 'Content-Type', value: 'application/json' }],",
-          "  body: { mode: 'raw', raw: JSON.stringify(body) },",
-          "}, (err, res) => {",
-          "  if (!err && res.code === 201) pm.collectionVariables.set(varName, res.json().id);",
-          "});",
-          "const isbn = () => {",
-          "  const base = '979' + String(Math.floor(Math.random() * 1e9)).padStart(9, '0');",
-          "  const sum = [...base].reduce((acc, ch, i) => acc + Number(ch) * (i % 2 ? 3 : 1), 0);",
-          "  return base + ((10 - (sum % 10)) % 10);",
-          "};",
-          "if (!pm.collectionVariables.get('bookId')) {",
-          "  post('/books', { title: 'Тіні забутих предків', author: 'Михайло Коцюбинський', genre: 'повість', totalCopies: 2, isbn: isbn() }, 'bookId');",
-          "}",
-          "if (!pm.collectionVariables.get('readerId')) {",
-          "  post('/readers', { name: 'Андрій Postman', email: `andrii.${Date.now()}@example.com` }, 'readerId');",
-          "}",
-          "// Для негативного прикладу «No free copies» — книжка без примірників.",
-          "if (pm.info.requestName.startsWith('[Negative] No free copies')) {",
-          "  post('/books', { title: 'Книжка без примірників', author: 'Postman', totalCopies: 0, isbn: isbn() }, 'emptyBookId');",
-          "}"
-        ] } }
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Якщо bookId/readerId ще не задані (або видалені в Books/Readers) — створюємо їх,",
+              "// щоб видачі працювали і при ручному запуску, і в Collection Runner.",
+              "const baseUrl = pm.collectionVariables.get('baseUrl');",
+              "const post = (path, body, varName) => pm.sendRequest({",
+              "  url: baseUrl + path,",
+              "  method: 'POST',",
+              "  header: [{ key: 'Content-Type', value: 'application/json' }],",
+              "  body: { mode: 'raw', raw: JSON.stringify(body) },",
+              "}, (err, res) => {",
+              "  if (!err && res.code === 201) pm.collectionVariables.set(varName, res.json().id);",
+              "});",
+              "const isbn = () => {",
+              "  const base = '979' + String(Math.floor(Math.random() * 1e9)).padStart(9, '0');",
+              "  const sum = [...base].reduce((acc, ch, i) => acc + Number(ch) * (i % 2 ? 3 : 1), 0);",
+              "  return base + ((10 - (sum % 10)) % 10);",
+              "};",
+              "if (!pm.collectionVariables.get('bookId')) {",
+              "  post('/books', { title: 'Тіні забутих предків', author: 'Михайло Коцюбинський', genre: 'повість', totalCopies: 2, isbn: isbn() }, 'bookId');",
+              "}",
+              "if (!pm.collectionVariables.get('readerId')) {",
+              "  post('/readers', { name: 'Андрій Postman', email: `andrii.${Date.now()}@example.com` }, 'readerId');",
+              "}",
+              "// Для негативного прикладу «No free copies» — книжка без примірників.",
+              "if (pm.info.requestName.startsWith('[Negative] No free copies')) {",
+              "  post('/books', { title: 'Книжка без примірників', author: 'Postman', totalCopies: 0, isbn: isbn() }, 'emptyBookId');",
+              "}"
+            ]
+          }
+        }
       ],
       "item": [
         {
@@ -345,89 +821,173 @@
             "method": "GET",
             "url": {
               "raw": "{{baseUrl}}/loans?status=active&sort=-loanDate",
-              "host": ["{{baseUrl}}"],
-              "path": ["loans"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "loans"
+              ],
               "query": [
-                { "key": "status", "value": "active", "description": "active | overdue | returned" },
-                { "key": "sort", "value": "-loanDate", "description": "loanDate | dueDate | returnDate | createdAt" },
-                { "key": "readerId", "value": "{{readerId}}", "disabled": true },
-                { "key": "bookId", "value": "{{bookId}}", "disabled": true }
+                {
+                  "key": "status",
+                  "value": "active",
+                  "description": "active | overdue | returned"
+                },
+                {
+                  "key": "sort",
+                  "value": "-loanDate",
+                  "description": "loanDate | dueDate | returnDate | createdAt"
+                },
+                {
+                  "key": "readerId",
+                  "value": "{{readerId}}",
+                  "disabled": true
+                },
+                {
+                  "key": "bookId",
+                  "value": "{{bookId}}",
+                  "disabled": true
+                }
               ]
             }
           },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Create loan (issue book)",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/loans",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"bookId\": \"{{bookId}}\",\n  \"readerId\": \"{{readerId}}\",\n  \"days\": 14\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "description": "days — 1–30 (за замовчуванням 14). Поза production можна передати loanDate у минулому, щоб змоделювати прострочення."
           },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('201 Created', () => pm.response.to.have.status(201));",
-              "if (pm.response.code === 201) pm.collectionVariables.set('loanId', pm.response.json().id);"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 Created', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) pm.collectionVariables.set('loanId', pm.response.json().id);"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Get loan by id",
-          "request": { "method": "GET", "url": "{{baseUrl}}/loans/{{loanId}}" },
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/loans/{{loanId}}"
+          },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Extend loan (+7 days)",
-          "request": { "method": "POST", "url": "{{baseUrl}}/loans/{{loanId}}/extend" },
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/loans/{{loanId}}/extend"
+          },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Return loan",
-          "request": { "method": "POST", "url": "{{baseUrl}}/loans/{{loanId}}/return" },
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/loans/{{loanId}}/return"
+          },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "[Negative] No free copies → 409",
           "request": {
             "method": "POST",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
             "url": "{{baseUrl}}/loans",
             "body": {
               "mode": "raw",
               "raw": "{\n  \"bookId\": \"{{emptyBookId}}\",\n  \"readerId\": \"{{readerId}}\"\n}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "description": "Перед запитом створюється книжка з totalCopies: 0 (змінна emptyBookId)."
           },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('409 Conflict', () => pm.response.to.have.status(409));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('409 Conflict', () => pm.response.to.have.status(409));"
+                ]
+              }
+            }
           ]
         }
-      ]
+      ],
+      "description": "Лише admin: спершу виконайте Auth → Login."
     },
     {
       "name": "Stats",
@@ -438,37 +998,80 @@
             "method": "GET",
             "url": {
               "raw": "{{baseUrl}}/stats/popular-books?limit=5",
-              "host": ["{{baseUrl}}"],
-              "path": ["stats", "popular-books"],
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stats",
+                "popular-books"
+              ],
               "query": [
-                { "key": "limit", "value": "5", "description": "1–50" },
-                { "key": "from", "value": "2026-01-01", "disabled": true, "description": "YYYY-MM-DD або ISO 8601" },
-                { "key": "to", "value": "2026-12-31", "disabled": true, "description": "Дата без часу — включно до кінця дня" }
+                {
+                  "key": "limit",
+                  "value": "5",
+                  "description": "1–50"
+                },
+                {
+                  "key": "from",
+                  "value": "2026-01-01",
+                  "disabled": true,
+                  "description": "YYYY-MM-DD або ISO 8601"
+                },
+                {
+                  "key": "to",
+                  "value": "2026-12-31",
+                  "disabled": true,
+                  "description": "Дата без часу — включно до кінця дня"
+                }
               ]
             }
           },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Genres",
-          "request": { "method": "GET", "url": "{{baseUrl}}/stats/genres" },
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/stats/genres"
+          },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Overdue loans",
-          "request": { "method": "GET", "url": "{{baseUrl}}/stats/overdue" },
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/stats/overdue"
+          },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
@@ -477,27 +1080,186 @@
             "method": "GET",
             "url": {
               "raw": "{{baseUrl}}/stats/top-readers?limit=5",
-              "host": ["{{baseUrl}}"],
-              "path": ["stats", "top-readers"],
-              "query": [{ "key": "limit", "value": "5", "description": "1–50" }]
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stats",
+                "top-readers"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "5",
+                  "description": "1–50"
+                }
+              ]
             }
           },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         },
         {
           "name": "Summary",
-          "request": { "method": "GET", "url": "{{baseUrl}}/stats/summary" },
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/stats/summary"
+          },
           "event": [
-            { "listen": "test", "script": { "type": "text/javascript", "exec": [
-              "pm.test('200 OK', () => pm.response.to.have.status(200));"
-            ] } }
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "description": "Лише admin: спершу виконайте Auth → Login."
+    },
+    {
+      "name": "Logout",
+      "item": [
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/auth/logout"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+                  "pm.collectionVariables.unset('csrfToken');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Negative] Me after logout → 401",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/auth/me"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "[Negative] Create book without login → 401",
+          "request": {
+            "method": "POST",
+            "url": "{{baseUrl}}/books",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Без входу\",\n  \"author\": \"Тест\",\n  \"isbn\": \"9780306406157\",\n  \"totalCopies\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Public: list books without login",
+          "request": {
+            "method": "GET",
+            "url": "{{baseUrl}}/books?limit=5"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
           ]
         }
       ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// CSRF: змінювальним запитам потрібен заголовок X-CSRF-Token з токеном поточної сесії.",
+          "const method = pm.request.method.toUpperCase();",
+          "if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {",
+          "  const setHeader = (token) => pm.request.headers.upsert({ key: 'X-CSRF-Token', value: token });",
+          "  const token = pm.collectionVariables.get('csrfToken');",
+          "  if (token) {",
+          "    setHeader(token);",
+          "  } else {",
+          "    const baseUrl = pm.variables.replaceIn(pm.collectionVariables.get('baseUrl'));",
+          "    pm.sendRequest({ url: `${baseUrl}/auth/csrf`, method: 'GET' }, (err, res) => {",
+          "      if (err || res.code !== 200) return console.warn('Не вдалося отримати CSRF-токен', err ?? res.code);",
+          "      const fresh = res.json().csrfToken;",
+          "      pm.collectionVariables.set('csrfToken', fresh);",
+          "      setHeader(fresh);",
+          "    });",
+          "  }",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Токен застарів (нова сесія) — скидаємо, наступний запит отримає свіжий.",
+          "if (pm.response.code === 403 && /CSRF/i.test(pm.response.text())) {",
+          "  pm.collectionVariables.unset('csrfToken');",
+          "}"
+        ]
+      }
     }
   ]
 }

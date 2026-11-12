@@ -6,6 +6,8 @@ export function createBookRoutes(controller) {
   const router = Router();
 
   router.get('/', controller.list);
+  // До /:id, інакше "genres" сприймався б як id.
+  router.get('/genres', controller.genres);
   router.get('/:id', controller.getById);
   router.post('/', requireAdmin, controller.create);
   router.put('/:id', requireAdmin, controller.replace);

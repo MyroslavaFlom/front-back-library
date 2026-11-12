@@ -98,6 +98,10 @@ export function createBookService({ bookDao, loanDao, withTransaction, events = 
       return getExisting(id);
     },
 
+    genres() {
+      return bookDao.genreCounts();
+    },
+
     async create(input) {
       const data = validateBook(input);
       data.availableCopies ??= data.totalCopies;

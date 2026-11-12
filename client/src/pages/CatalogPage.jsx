@@ -12,12 +12,6 @@ import { dash } from '../format.js';
 
 const PAGE_SIZE = 12;
 
-// Жанри — з усіх книжок каталогу (окремого публічного ендпоінта для жанрів немає).
-async function loadGenres() {
-  const books = await booksApi.listAll({ sort: 'title' });
-  return [...new Set(books.map((b) => b.genre).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'uk'));
-}
-
 function BookCard({ book }) {
   const available = book.availableCopies > 0;
   return (
@@ -67,7 +61,7 @@ export default function CatalogPage() {
       }),
     [page, search, genre, available],
   );
-  const genres = useAsync(loadGenres, []);
+  const genres = useAsync(() => booksApi.genres(), []);
 
   // Каталог оновлюється сам: зміни книжок (зокрема кількість вільних примірників після видачі).
   useLiveEvents({
@@ -76,8 +70,14 @@ export default function CatalogPage() {
       books.reload();
       genres.reload();
     },
-    'book.updated': () => books.reload(),
-    'book.deleted': () => books.reload(),
+    'book.updated': () => {
+      books.reload();
+      genres.reload();
+    },
+    'book.deleted': () => {
+      books.reload();
+      genres.reload();
+    },
   });
 
   const updateParams = (changes) => {
@@ -116,9 +116,9 @@ export default function CatalogPage() {
             aria-label="Жанр"
           >
             <option value="">Усі жанри</option>
-            {(genres.data ?? []).map((g) => (
+            {(genres.data ?? []).map(({ genre: g, booksCount }) => (
               <option key={g} value={g}>
-                {g}
+                {g} ({booksCount})
               </option>
             ))}
           </Form.Select>

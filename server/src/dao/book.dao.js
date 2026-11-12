@@ -41,6 +41,21 @@ export class BookDao extends BaseDao {
 
   // ---------- Аналітика (aggregation pipeline) ----------
 
+  // Публічний список жанрів: [{ genre, booksCount }], за алфавітом (українська колація). Книжки без жанру не враховуються.
+  async genreCounts() {
+    return this.collection
+      .aggregate(
+        [
+          { $match: { genre: { $type: 'string', $ne: '' } } },
+          { $group: { _id: '$genre', booksCount: { $sum: 1 } } },
+          { $project: { _id: 0, genre: '$_id', booksCount: 1 } },
+          { $sort: { genre: 1 } },
+        ],
+        { collation: { locale: 'uk' } },
+      )
+      .toArray();
+  }
+
   async genreStats() {
     return this.collection
       .aggregate([

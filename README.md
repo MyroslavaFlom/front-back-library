@@ -1,9 +1,13 @@
 # Library Service
 
-RESTful-сервіс «Бібліотека»: облік книжок, читачів і видач, аналітика та рекомендації.
-Стек: **Node.js + Express 5 + MongoDB** (офіційний драйвер `mongodb`, без Mongoose), ES-модулі.
+«Бібліотека»: облік книжок, читачів і видач, аналітика та рекомендації.
 
-## Архітектура
+- `server/` — RESTful-сервіс: **Node.js + Express 5 + MongoDB** (офіційний драйвер `mongodb`, без Mongoose), ES-модулі.
+- `client/` — «товстий клієнт»: **React + Vite**, `react-router-dom`, Bootstrap 5 (`react-bootstrap`).
+
+Корінь — npm workspaces (`server`, `client`); усі команди запускаються з кореня.
+
+## Архітектура сервера
 
 Кожен запит проходить шари строго зверху вниз:
 
@@ -13,30 +17,30 @@ routes → controllers → services → dao → MongoDB
 
 | Шар | Каталог | Що робить |
 |---|---|---|
-| routes | `src/routes/` | Зіставляє URL і HTTP-метод із методом контролера. Без логіки. |
-| controllers | `src/controllers/` | Читає `req` (params, query, body), викликає сервіс, формує HTTP-відповідь. |
-| services | `src/services/` | Бізнес-логіка й правила предметної області (ліміти, штрафи, рекомендації). Не знає про HTTP і про MongoDB. |
-| dao | `src/dao/` | Єдине місце роботи з колекціями MongoDB: запити, aggregation pipeline, конвертація `ObjectId`. |
+| routes | `server/src/routes/` | Зіставляє URL і HTTP-метод із методом контролера. Без логіки. |
+| controllers | `server/src/controllers/` | Читає `req` (params, query, body), викликає сервіс, формує HTTP-відповідь. |
+| services | `server/src/services/` | Бізнес-логіка й правила предметної області (ліміти, штрафи, рекомендації). Не знає про HTTP і про MongoDB. |
+| dao | `server/src/dao/` | Єдине місце роботи з колекціями MongoDB: запити, aggregation pipeline, конвертація `ObjectId`. |
 
 **DAO (Data Access Object)** — об'єкт, який інкапсулює доступ до сховища даних. Сервіс викликає
 `bookDao.findById(id)` чи `loanDao.popularBooks(...)` і не знає, як саме це зберігається й шукається.
 Тому бізнес-логіку можна читати й змінювати окремо від запитів до БД, а сховище — замінити, не чіпаючи сервіси.
 
-Допоміжні каталоги: `src/config/` (`.env`, підключення до MongoDB), `src/validators/` (валідація вхідних даних),
-`src/middlewares/` (обробка помилок, 404), `src/utils/` (`HttpError`), `src/scripts/` (seed).
+Допоміжні каталоги: `server/src/config/` (`.env`, підключення до MongoDB), `server/src/validators/` (валідація вхідних даних),
+`server/src/middlewares/` (обробка помилок, 404), `server/src/utils/` (`HttpError`), `server/src/scripts/` (seed).
 
 Операції, що змінюють кілька документів (видача, повернення, видалення, зміна кількості примірників),
 виконуються в транзакціях MongoDB — потрібен replica set (MongoDB Atlas підходить, зокрема безкоштовний кластер).
 
 ## Запуск
 
-1. Створіть `.env` за зразком `.env.example`:
+1. Створіть `server/.env` за зразком `server/.env.example`:
    ```
    PORT=3000
    MONGO_URI=mongodb+srv://<user>:<password>@<cluster>.mongodb.net/?retryWrites=true&w=majority
    DB_NAME=library_service
    ```
-2. Встановіть залежності:
+2. Встановіть залежності (для обох пакетів одразу):
    ```
    npm install
    ```
@@ -45,12 +49,16 @@ routes → controllers → services → dao → MongoDB
    npm run seed
    ```
    15 книжок різних жанрів, 5 читачів, 11 видач (з них 4 повернені й 3 прострочені).
-4. Запустіть сервер:
+4. Розробка — сервер і клієнт разом:
    ```
-   npm run dev     # розробка (nodemon, перезапуск при змінах)
-   npm start       # продакшн
+   npm run dev
    ```
-   Перевірка: `GET http://localhost:3000/api/health`.
+   Клієнт: http://localhost:5173 (Vite проксує `/api` на http://localhost:3000). API: `GET http://localhost:3000/api/health`.
+5. Продакшн — зібрати клієнт і запустити сервер, який віддає `client/dist` на http://localhost:3000:
+   ```
+   npm run build
+   npm start
+   ```
 
 ## Ендпоінти
 
